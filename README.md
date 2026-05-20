@@ -13,6 +13,8 @@ KI-Anbindung (Anthropic Claude) über ein sicheres Node-Backend.
 
 ## Architektur
 
+![Architektur von Nomos](architektur.svg)
+
 ```
 Browser (React UI, public/index.html)
         │  fetch  ───────────────────────────────────┐

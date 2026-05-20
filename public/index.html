@@ -78,6 +78,25 @@
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useMemo } = React;
 
+// Modellname dynamisch aus dem Backend (/healthz) — verhindert falsche Modellangaben im UI.
+function modelLabel(id) {
+  const map = {
+    'claude-opus-4-7': 'Claude Opus 4.7',
+    'claude-opus-4-6': 'Claude Opus 4.6',
+    'claude-sonnet-4-6': 'Claude Sonnet 4.6',
+    'claude-haiku-4-5': 'Claude Haiku 4.5',
+  };
+  if (!id) return 'Claude';
+  return map[id] || ('Claude (' + id + ')');
+}
+function useModel() {
+  const [name, setName] = useState('Claude');
+  useEffect(() => {
+    fetch('/healthz').then(r => r.json()).then(d => setName(modelLabel(d.model))).catch(() => {});
+  }, []);
+  return name;
+}
+
 /* ── Brand atoms ─────────────────────────────────────────────────────────── */
 function Wordmark({ size=26, color='var(--ink-900)' }) {
   return <span style={{ fontFamily:"'Geist',sans-serif", fontSize:size, fontWeight:500, letterSpacing:'-0.055em', color, lineHeight:0.85 }}>Telos</span>;
@@ -236,6 +255,76 @@ function PageProdukt({ startPitch }) {
   );
 }
 
+/* Architektur-Diagramm (markenkonform, responsiv) */
+function ArchBox({ tone, eyebrow, title, lines, mark }) {
+  const dark = tone === 'dark';
+  return (
+    <div className={"flex-1 rounded-2xl p-4 "+(dark ? "bg-ink-900 text-cream-100" : "border border-cream-300 bg-cream-50")}>
+      <div className="flex items-center gap-2">
+        {mark}
+        <span className="brand-mono uppercase" style={{ fontSize:9, letterSpacing:'0.14em', color: dark ? 'rgba(245,240,230,0.55)' : 'var(--ink-500)' }}>{eyebrow}</span>
+      </div>
+      <div className={"mt-1 text-sm font-medium "+(dark ? "text-cream-100" : "text-ink-900")}>{title}</div>
+      <ul className="mt-2 flex flex-col gap-1">
+        {lines.map((l,i)=>(
+          <li key={i} className="brand-mono" style={{ fontSize:10, letterSpacing:'0.04em', color: dark ? 'rgba(245,240,230,0.75)' : 'var(--ink-700)' }}>{l}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+const ArchArrow = ({ label }) => (
+  <div className="flex shrink-0 flex-col items-center justify-center gap-1 px-1 py-2 md:py-0">
+    <span className="brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.1em' }}>{label}</span>
+    <span className="text-terracotta md:rotate-0" style={{ fontSize:18, lineHeight:1 }}>→</span>
+  </div>
+);
+
+function ArchitectureDiagram({ model }) {
+  return (
+    <div className="rounded-3xl border border-cream-300 bg-cream-100 p-5 md:p-7">
+      {/* Hauptfluss */}
+      <div className="flex flex-col items-stretch gap-2 md:flex-row md:items-stretch">
+        <ArchBox tone="light" eyebrow="1 · IM BROWSER" title="Telos · Web-Oberfläche"
+          mark={<TelosLockup size={16} />}
+          lines={['Pitch / Businessplan','PDF · DOCX · Text','kein API-Key im Browser']} />
+        <ArchArrow label="HTTPS" />
+        <ArchBox tone="dark" eyebrow="2 · SICHERES BACKEND" title="Node · Express (serverseitig)"
+          mark={<span className="text-honey" style={{ fontSize:12 }}>●</span>}
+          lines={['/api/analyze','/api/livesearch','/api/translate','/api/generate','ANTHROPIC_API_KEY hier']} />
+        <ArchArrow label="API" />
+        <ArchBox tone="light" eyebrow="3 · KI-ENGINE" title={model}
+          mark={<NomosMark size={16} color="var(--ink-900)" />}
+          lines={['adaptive thinking','prompt caching','strukturierte Outputs']} />
+      </div>
+      {/* Quellen */}
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="rounded-2xl border border-cream-300 bg-cream-50 p-4">
+          <span className="brand-mono uppercase text-cobalt" style={{ fontSize:9, letterSpacing:'0.14em' }}>DATENQUELLE</span>
+          <div className="mt-1 text-sm font-medium text-ink-900">Kuratierte Förder-Datenbank</div>
+          <p className="mt-1 text-sm leading-relaxed text-ink-700">Programme aus Bund, Ländern & EU — Claude matcht & begründet.</p>
+        </div>
+        <div className="rounded-2xl border border-cream-300 bg-cream-50 p-4">
+          <span className="brand-mono uppercase text-cobalt" style={{ fontSize:9, letterSpacing:'0.14em' }}>DATENQUELLE</span>
+          <div className="mt-1 text-sm font-medium text-ink-900">Live-Websuche (web_search)</div>
+          <p className="mt-1 text-sm leading-relaxed text-ink-700">Findet aktuelle, reale Programme im Web — mit Quell-Links.</p>
+        </div>
+      </div>
+      {/* Rückkanal */}
+      <div className="mt-3 flex items-center gap-3 rounded-2xl bg-cream-200 px-4 py-3">
+        <ArcMark size={26} color="var(--terracotta)" />
+        <span className="brand-mono text-ink-700" style={{ fontSize:11, letterSpacing:'0.06em' }}>
+          RÜCKKANAL · gestreamt → Analyse · Übersetzung · Antragsentwurf
+        </span>
+      </div>
+      <p className="mt-4 text-sm leading-relaxed text-ink-700">
+        <strong className="text-ink-900">Dein API-Key bleibt im Backend</strong> — niemals im Browser. Pläne werden zur
+        Verarbeitung an die Anthropic-API gesendet und nicht dauerhaft gespeichert.
+      </p>
+    </div>
+  );
+}
+
 /* Nomos-Engine */
 function PageEngine({ startPitch }) {
   const caps = [
@@ -244,7 +333,8 @@ function PageEngine({ startPitch }) {
     ['Übersetzung', 'Gründer-Slang → Behördendeutsch, ohne neue Fakten zu erfinden.'],
     ['Antrag', 'Strukturierter Entwurf von ~80 % des Förderantrags.'],
   ];
-  const tech = ['Claude Opus 4.7','Strukturierte Outputs','Live-Websuche','Prompt-Caching','PDF & DOCX nativ','Serverseitig & sicher'];
+  const model = useModel();
+  const tech = [model,'Strukturierte Outputs','Live-Websuche','Prompt-Caching','PDF & DOCX nativ','Serverseitig & sicher'];
   return (
     <PageShell>
       <PageHero eyebrow="SUB-BRAND · DIE KI-ENGINE"
@@ -284,6 +374,10 @@ function PageEngine({ startPitch }) {
           Jeder Aufruf läuft serverseitig über die offizielle Anthropic-API — dein API-Key bleibt im Backend und gelangt nie in den Browser.
           Hochgeladene Pläne werden zur Verarbeitung gesendet und nicht dauerhaft gespeichert.
         </p>
+      </div>
+
+      <div className="mt-12"><SectionLabel>ARCHITEKTUR</SectionLabel>
+        <ArchitectureDiagram model={model} />
       </div>
 
       <CTAband startPitch={startPitch} />
@@ -483,6 +577,7 @@ function Nav({ page, go, onLogo, startPitch }) {
 function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnalyze }) {
   const [drag, setDrag] = useState(false);
   const inputRef = useRef(null);
+  const model = useModel();
   const canGo = pitch.trim().length > 24 || !!file;
 
   function onDrop(e){ e.preventDefault(); setDrag(false); const f=e.dataTransfer.files?.[0]; if(f) setFile(f); }
@@ -537,7 +632,7 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
           </div>
 
           <div className="mt-10 flex flex-wrap gap-8 border-t border-cream-300 pt-6">
-            {[['Echte KI','Claude Opus · serverseitig'],['PDF & DOCX','native Dokument-Analyse'],['80 %','des Antrags vorbereitet']].map(([v,l])=>(
+            {[['Echte KI',model+' · serverseitig'],['PDF & DOCX','native Dokument-Analyse'],['80 %','des Antrags vorbereitet']].map(([v,l])=>(
               <div key={l}><div className="font-sans" style={{ fontSize:20, fontWeight:500, letterSpacing:'-0.02em' }}>{v}</div>
                 <div className="brand-mono mt-1 uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>{l}</div></div>))}
           </div>
