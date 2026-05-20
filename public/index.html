@@ -69,7 +69,17 @@
     .md th,.md td{border:1px solid var(--cream-300);padding:8px 12px;text-align:left;}
     .md th{background:var(--cream-200);font-weight:600;}
     .md em{font-style:italic;}
-    @media print{ .no-print{display:none!important;} body{background:#fff;} }
+    .md mark.erg{background:#ECD6AB;color:#46403A;padding:0 3px;border-radius:3px;font-weight:500;}
+    @media print{
+      header, footer, .no-print { display:none !important; }
+      body{ background:#fff; }
+      .print-doc{ border:none !important; box-shadow:none !important; background:#fff !important; padding:0 !important; max-width:100% !important; }
+      .md h1,.md h2,.md h3,.md p,.md li,.md td,.md th{ color:#000 !important; }
+      .md mark.erg{ background:none; font-weight:700; }
+      .md table,.md ul,.md ol,.md li,.md tr{ page-break-inside:avoid; }
+      .md h1,.md h2,.md h3{ page-break-after:avoid; }
+      @page{ margin:18mm; }
+    }
   </style>
 </head>
 <body>
@@ -376,7 +386,39 @@ function PageEngine({ startPitch }) {
         </p>
       </div>
 
-      <div className="mt-12"><SectionLabel>ARCHITEKTUR</SectionLabel>
+      <div className="mt-12"><SectionLabel>VERARBEITUNGS-PIPELINE</SectionLabel>
+        <div className="rounded-3xl border border-cream-300 bg-cream-50 p-5 md:p-7">
+          {/* 4-Stufen-Pipeline */}
+          <div className="flex flex-col items-stretch gap-2 md:flex-row md:items-center">
+            {[['01','Pitch-Upload','PDF · DOCX · Text'],
+              ['02','Semantische Analyse & Caching','Vorhaben verstehen'],
+              ['03','Förder-Matching','kuratiert + live'],
+              ['04','80 % Antrag (Stream)','Behördendeutsch']].map(([n,t,d],i,arr)=>(
+              <React.Fragment key={n}>
+                <div className="flex-1 rounded-2xl border border-cream-300 bg-cream-100 p-4">
+                  <span className="brand-mono text-terracotta" style={{ fontSize:10, letterSpacing:'0.14em' }}>{n}</span>
+                  <div className="mt-1 text-sm font-medium text-ink-900">{t}</div>
+                  <div className="brand-mono mt-1 text-ink-500" style={{ fontSize:10 }}>{d}</div>
+                </div>
+                {i < arr.length-1 && <span className="self-center text-terracotta md:px-1" style={{ fontSize:18 }}>➔</span>}
+              </React.Fragment>
+            ))}
+          </div>
+          {/* Erklärspalten */}
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-cream-300 bg-cream-100 p-4">
+              <div className="text-sm font-medium text-ink-900">Nüchternes Scoring</div>
+              <p className="mt-1 text-sm leading-relaxed text-ink-700">Objektive Bewertung anhand harter Kriterien — Themenfokus, Phase und Region. Keine Schönfärberei: schwache Treffer werden als solche benannt.</p>
+            </div>
+            <div className="rounded-2xl border border-cream-300 bg-cream-100 p-4">
+              <div className="text-sm font-medium text-ink-900">Prompt Caching</div>
+              <p className="mt-1 text-sm leading-relaxed text-ink-700">Hohe Performance durch Anthropics ephemeres Prompt-Caching der statischen Förderdatenbank — wiederkehrende Kontexte werden nicht erneut voll berechnet.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-12"><SectionLabel>SYSTEM-ARCHITEKTUR</SectionLabel>
         <ArchitectureDiagram model={model} />
       </div>
 
@@ -614,6 +656,8 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
               placeholder="… oder beschreibe deine Idee als Text (auch in lockerem Gründer-Slang)."
               className="mt-3 w-full resize-none rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
 
+            <p className="mt-2 text-xs leading-relaxed text-ink-500">🔒 Sicheres Upload: Deine Dokumente werden nach der Analyse nicht serverseitig gespeichert.</p>
+
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>BEISPIELE:</span>
               {SAMPLES.map(s => <button key={s.proj} onClick={()=>{setProj(s.proj);setPitch(s.text);setFile(null);}}
@@ -665,7 +709,7 @@ function Analyzing({ proj }) {
   const [step, setStep] = useState(0);
   useEffect(() => { const id = setInterval(()=>setStep(s=>Math.min(s+1, STEPS.length-1)), 2600); return ()=>clearInterval(id); }, []);
   return (
-    <main className="anim-fadein mx-auto flex min-h-[70vh] max-w-2xl flex-col items-center justify-center px-6 text-center">
+    <main className="anim-fadein mx-auto flex min-h-[70vh] max-w-3xl flex-col items-center justify-center px-6 py-12 text-center">
       <div className="relative flex h-28 w-28 items-center justify-center rounded-3xl bg-ink-900">
         <div className="scan-line" /><div className="spin"><NomosMark size={56} color="var(--cream-100)" /></div>
       </div>
@@ -681,6 +725,10 @@ function Analyzing({ proj }) {
             </div>))}
         </div>
         <p className="mt-6 text-sm text-ink-500">Echte KI-Analyse — das dauert je nach Plan einige Sekunden.</p>
+      </div>
+      <div className="mt-10 w-full max-w-xl text-left">
+        <Eyebrow className="mb-3">TREFFER WERDEN VORBEREITET</Eyebrow>
+        <SkeletonRows n={3} />
       </div>
     </main>
   );
@@ -761,7 +809,7 @@ function Dashboard({ proj, pitch, file, analysis, onSelect }) {
           </button>
         </div>
         {liveErr && <div className="rounded-2xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-ink-900">{liveErr}</div>}
-        {searching && <div className="rounded-2xl border border-cream-300 bg-cream-50 p-4 text-sm text-ink-500">Nomos durchsucht offizielle Förderquellen — das dauert etwas länger als die Analyse.</div>}
+        {searching && <div><p className="mb-2.5 text-sm text-ink-500">Nomos durchsucht offizielle Förderquellen — das dauert etwas länger als die Analyse.</p><SkeletonRows n={3} /></div>}
         {!searching && liveDone && live.length===0 && !liveErr &&
           <div className="rounded-2xl border border-cream-300 bg-cream-50 p-4 text-sm text-ink-700">Keine zusätzlichen passenden Programme über die Websuche gefunden.</div>}
         {live.length>0 && <div className="flex flex-col gap-2.5">{live.map((g,i)=><MatchRow key={g.id} g={g} delay={i*60} onSelect={()=>onSelect(g)} />)}</div>}
@@ -828,6 +876,28 @@ function MatchRow({ g, delay, onSelect }) {
     </div>);
 }
 
+// Lade-Platzhalter im Layout von MatchRow.
+function SkeletonRow() {
+  const bar = (w) => <div className="h-3 rounded bg-cream-300" style={{ width:w }} />;
+  return (
+    <div className="rounded-xl border border-cream-200 bg-cream-50 p-4 animate-pulse">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          {bar('55%')}
+          <div className="mt-2">{bar('38%')}</div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="h-1 w-20 rounded-full bg-cream-300" />
+          <div className="h-8 w-20 rounded-full bg-cream-300" />
+        </div>
+      </div>
+      <div className="mt-3">{bar('90%')}</div>
+      <div className="mt-2">{bar('72%')}</div>
+    </div>
+  );
+}
+const SkeletonRows = ({ n=3 }) => <div className="flex flex-col gap-2.5">{Array.from({length:n}).map((_,i)=><SkeletonRow key={i} />)}</div>;
+
 function Panel({ label, dark, children }) {
   return (
     <div className={"rounded-2xl p-4 "+(dark?"bg-ink-900 text-cream-100":"border border-cream-300 bg-cream-50 text-ink-900")}>
@@ -863,9 +933,11 @@ function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
     })();
   }, []);
 
+  const gapCount = useMemo(() => (text.match(/\[BITTE ERGÄNZEN/gi) || []).length, [text]);
   const html = useMemo(() => {
     const raw = marked.parse(text || '', { breaks:true });
-    return DOMPurify.sanitize(raw);
+    const marked_ = raw.replace(/\[BITTE ERGÄNZEN[^\]]*\]/gi, (m) => `<mark class="erg">${m}</mark>`);
+    return DOMPurify.sanitize(marked_);
   }, [text]);
 
   function copy(){ navigator.clipboard?.writeText(text); }
@@ -899,7 +971,16 @@ function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
         {error && <p className="mt-3 text-sm text-honey">Fehler: {error}</p>}
       </div>
 
-      <article className="rounded-3xl border border-cream-300 bg-cream-50 p-8 md:p-12">
+      {done && !error && gapCount > 0 && (
+        <div className="no-print anim-fadein mb-6 flex items-start gap-3 rounded-2xl border border-honey bg-[#ECD6AB]/40 px-5 py-4">
+          <span className="mt-0.5 flex h-6 w-6 flex-none items-center justify-center rounded-full bg-honey brand-mono text-ink-900" style={{ fontSize:11 }}>{gapCount}</span>
+          <div>
+            <div className="text-sm font-medium text-ink-900">Diese {gapCount} {gapCount===1?'Stelle braucht':'Stellen brauchen'} deinen Input</div>
+            <p className="mt-0.5 text-sm leading-relaxed text-ink-700">Gelb markierte <strong>[BITTE ERGÄNZEN]</strong>-Felder im Entwurf ergänzt du selbst — sie gehören zu den letzten ~20 % (persönliche Angaben, Erklärungen, Unterschriften).</p>
+          </div>
+        </div>)}
+
+      <article className="print-doc rounded-3xl border border-cream-300 bg-cream-50 p-8 md:p-12">
         {text ? <div className="md" dangerouslySetInnerHTML={{ __html: html }} />
               : <div className="flex items-center gap-3 text-ink-500"><span className="spin"><NomosMark size={18} color="var(--ink-500)" /></span><span className="brand-mono" style={{ fontSize:12 }}>Nomos formuliert …</span></div>}
         {done && !error && (
@@ -915,7 +996,7 @@ function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
 function Footer({ go, startPitch }) {
   return (
     <footer className="no-print border-t border-cream-300 px-6 py-12 md:px-12">
-      <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.4fr_1fr_1fr]">
+      <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.3fr_0.8fr_1.2fr_0.9fr]">
         <div>
           <div className="flex items-center gap-3"><TelosLockup size={22} />
             <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.18em' }}>· NOMOS</span></div>
@@ -931,12 +1012,37 @@ function Footer({ go, startPitch }) {
           </ul>
         </div>
         <div>
+          <div className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>Impressum</div>
+          <div className="mt-3 flex flex-col gap-0.5 text-sm leading-relaxed text-ink-700">
+            <span className="font-medium text-ink-900">[Firmenname] GmbH</span>
+            <span>[Straße Nr.]</span>
+            <span>[PLZ Ort], Deutschland</span>
+            <span className="mt-1.5">Vertreten durch: [Name]</span>
+            <span>Kontakt: [E-Mail] · [Telefon]</span>
+            <span>USt-IdNr.: [DE… optional]</span>
+          </div>
+          <p className="mt-2 brand-mono uppercase text-ink-300" style={{ fontSize:9, letterSpacing:'0.12em' }}>Platzhalter — vor Veröffentlichung ersetzen</p>
+        </div>
+        <div>
           <div className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>Los geht's</div>
           <button onClick={startPitch} className="mt-3 rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Pitch hochladen →</button>
           <p className="mt-4 brand-mono uppercase text-ink-300" style={{ fontSize:10, letterSpacing:'0.14em' }}>Berlin · Wien · Zürich</p>
         </div>
       </div>
-      <div className="mx-auto mt-10 flex max-w-6xl items-center justify-between border-t border-cream-300 pt-5">
+
+      {/* Datenschutz / Trust */}
+      <div className="mx-auto mt-10 max-w-6xl rounded-2xl border border-cream-300 bg-cream-50 px-5 py-4">
+        <div className="flex items-start gap-3">
+          <span className="text-base leading-none">🔒</span>
+          <p className="text-sm leading-relaxed text-ink-700">
+            <span className="font-medium text-ink-900">Datenschutz:</span> TLS-verschlüsselte Übertragung · Dokumente werden nach der
+            Analyse nicht serverseitig gespeichert · Inhalte werden laut Anthropics Geschäftsbedingungen nicht zum Training der
+            KI-Modelle verwendet · auf DSGVO-Konformität ausgelegt.
+          </p>
+        </div>
+      </div>
+
+      <div className="mx-auto mt-8 flex max-w-6xl items-center justify-between border-t border-cream-300 pt-5">
         <span className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>© 2026 Telos AI · powered by Nomos</span>
         <NomosMark size={18} color="var(--ink-300)" />
       </div>

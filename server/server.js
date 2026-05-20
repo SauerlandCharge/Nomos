@@ -109,10 +109,8 @@ app.post("/api/analyze", upload.single("document"), async (req, res) => {
 
     const textBlock = message.content.find((b) => b.type === "text");
     if (!textBlock) throw new Error("Keine Analyse erhalten.");
-    let analysis;
-    try {
-      analysis = JSON.parse(textBlock.text);
-    } catch {
+    const analysis = salvageAnalysis(textBlock.text);
+    if (!analysis) {
       throw new Error("Die Analyse konnte nicht gelesen werden (unvollständige Antwort). Bitte erneut versuchen.");
     }
 
@@ -177,6 +175,37 @@ app.post("/api/livesearch", async (req, res) => {
     sendError(res, err);
   }
 });
+
+// Defensives Parsen der Analyse: bei abgeschnittenem/unvollständigem JSON wird
+// versucht, möglichst viel zu retten, statt komplett zu scheitern.
+function salvageAnalysis(text) {
+  if (!text) return null;
+  let s = text.trim().replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
+  // 1) Direkter Versuch.
+  try { return JSON.parse(s); } catch {}
+  // 2) Größtes {…}-Segment.
+  const start = s.indexOf("{");
+  const end = s.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(s.slice(start, end + 1)); } catch {}
+  }
+  // 3) Teil-Rettung: matches-Array + Skalarfelder per Regex bergen.
+  const partial = {};
+  const str = (key) => { const m = s.match(new RegExp('"' + key + '"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"')); return m ? m[1] : undefined; };
+  for (const k of ["projektname", "einzeiler", "branche", "phase", "region"]) {
+    const v = str(k); if (v !== undefined) partial[k] = v;
+  }
+  const matches = [];
+  const re = /\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"fit"\s*:\s*(\d+)\s*,\s*"begruendung"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}/g;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    matches.push({ id: m[1], fit: parseInt(m[2], 10), begruendung: m[3].replace(/\\"/g, '"') });
+  }
+  if (matches.length || Object.keys(partial).length) {
+    return { staerken: [], luecken: [], ...partial, matches };
+  }
+  return null;
+}
 
 function extractPrograms(text) {
   let jsonStr = null;
@@ -300,12 +329,18 @@ async function streamText(res, { system, messages, max_tokens, effort }) {
     messages,
   });
 
-  stream.on("text", (delta) => res.write(delta));
+  // Bricht der Client/Proxy ab (z. B. während langer adaptive-thinking-Phasen),
+  // wird die Anthropic-Anfrage sauber gestoppt — kein hängender Handler, keine
+  // verschwendeten Tokens.
+  let aborted = false;
+  res.on("close", () => { if (!res.writableEnded) { aborted = true; try { stream.abort(); } catch {} } });
+
+  stream.on("text", (delta) => { if (!aborted) res.write(delta); });
   try {
     await stream.finalMessage();
-    res.end();
+    if (!aborted) res.end();
   } catch (err) {
-    // Stream lief schon — Fehler inline anhängen.
+    if (aborted) return; // bewusster Abbruch — keine Fehlerausgabe nötig
     res.write(`\n\n[FEHLER: ${err.message}]`);
     res.end();
   }
