@@ -18,9 +18,10 @@ Browser (React UI, public/index.html)
         │  fetch  ───────────────────────────────────┐
         ▼                                             │
 Node + Express (server/)         ANTHROPIC_API_KEY    │  Streaming
-  /api/analyze   → Claude (structured JSON: Vorhaben + Matching)
-  /api/translate → Claude (Gründer-Slang → Behördendeutsch, gestreamt)
-  /api/generate  → Claude (Antragsentwurf als Markdown, gestreamt)
+  /api/analyze    → Claude (structured JSON: Vorhaben + Matching)
+  /api/livesearch → Claude + web_search (aktuelle reale Programme im Web)
+  /api/translate  → Claude (Gründer-Slang → Behördendeutsch, gestreamt)
+  /api/generate   → Claude (Antragsentwurf als Markdown, gestreamt)
         │
         ▼
 Claude Opus 4.7  (adaptive thinking, prompt caching)
@@ -85,8 +86,10 @@ npm run dev
 
 1. **Plan eingeben** — PDF/DOCX/TXT hochladen oder Text einfügen (auch lockerer Gründer-Slang).
 2. **Analysieren** — Nomos extrahiert das Vorhaben und matcht Förderlinien mit Konfidenz + Begründung.
-3. **Übersetzen** — auf Knopfdruck wird der Pitch in Behördendeutsch übersetzt.
-4. **Antrag generieren** — eine Förderlinie wählen → strukturierter Antragsentwurf (≈80 %),
+3. **Live-Websuche (optional)** — auf Knopfdruck sucht Nomos mit `web_search` nach aktuellen,
+   realen Förderprogrammen im Web und ergänzt die kuratierte Datenbank (mit Quell-Links).
+4. **Übersetzen** — auf Knopfdruck wird der Pitch in Behördendeutsch übersetzt.
+5. **Antrag generieren** — eine Förderlinie (kuratiert oder Live-Treffer) wählen → strukturierter Antragsentwurf (≈80 %),
    live gestreamt, als PDF exportierbar (Druckdialog) oder kopierbar.
 
 Mit `[BITTE ERGÄNZEN: …]` markierte Stellen brauchen deinen eigenen Input.
@@ -107,7 +110,6 @@ Mit `[BITTE ERGÄNZEN: …]` markierte Stellen brauchen deinen eigenen Input.
 
 ## Mögliche nächste Schritte
 
-- Live-Websuche (Claude `web_search`) zur Ergänzung der kuratierten Förderdatenbank.
 - Nutzerkonten + Speicherung von Anträgen (DB).
 - Echte PDF-Export-Pipeline statt Druckdialog.
 - Förderdatenbank gegen offizielle Quellen automatisiert aktuell halten.
