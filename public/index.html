@@ -293,6 +293,22 @@ function Dashboard({ proj, pitch, file, analysis, onSelect }) {
   const sourceText = pitch.trim() || a.einzeiler || '';
   const [translated, setTranslated] = useState('');
   const [translating, setTranslating] = useState(false);
+  const [live, setLive] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [liveDone, setLiveDone] = useState(false);
+  const [liveErr, setLiveErr] = useState('');
+
+  async function liveSearch() {
+    setSearching(true); setLiveErr(''); setLiveDone(false);
+    try {
+      const res = await fetch('/api/livesearch', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ projektname: a.projektname||proj, einzeiler: a.einzeiler, branche: a.branche, phase: a.phase, region: a.region }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error||`Fehler ${res.status}`); }
+      const data = await res.json();
+      setLive(data.programs || []); setLiveDone(true);
+    } catch (e) { setLiveErr(e.message); }
+    setSearching(false);
+  }
 
   async function translate() {
     if (!sourceText) return;
@@ -333,6 +349,23 @@ function Dashboard({ proj, pitch, file, analysis, onSelect }) {
         {(a.matches||[]).length===0
           ? <div className="rounded-2xl border border-cream-300 bg-cream-50 p-5 text-sm text-ink-700">Keine ausreichend passenden Förderlinien gefunden. Ergänze deinen Plan um Region, Phase und Technologiefeld und versuche es erneut.</div>
           : <div className="flex flex-col gap-2.5">{a.matches.map((g,i)=><MatchRow key={g.id} g={g} delay={i*60} onSelect={()=>onSelect(g)} />)}</div>}
+      </div>
+
+      {/* live web search */}
+      <div className="mt-8">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <Eyebrow>SCHRITT 2b · LIVE-WEBSUCHE (AKTUELLE PROGRAMME)</Eyebrow>
+          <button onClick={liveSearch} disabled={searching}
+            className="inline-flex items-center gap-2 rounded-full border border-cobalt px-4 py-2 text-xs text-ink-900 transition-colors enabled:hover:bg-cobalt enabled:hover:text-cream-50 disabled:opacity-40">
+            {searching ? <><span className="spin"><NomosMark size={13} color="var(--cobalt)" /></span> sucht im Web …</> : 'Aktuelle Programme im Web finden'}
+          </button>
+        </div>
+        {liveErr && <div className="rounded-2xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-ink-900">{liveErr}</div>}
+        {searching && <div className="rounded-2xl border border-cream-300 bg-cream-50 p-4 text-sm text-ink-500">Nomos durchsucht offizielle Förderquellen — das dauert etwas länger als die Analyse.</div>}
+        {!searching && liveDone && live.length===0 && !liveErr &&
+          <div className="rounded-2xl border border-cream-300 bg-cream-50 p-4 text-sm text-ink-700">Keine zusätzlichen passenden Programme über die Websuche gefunden.</div>}
+        {live.length>0 && <div className="flex flex-col gap-2.5">{live.map((g,i)=><MatchRow key={g.id} g={g} delay={i*60} onSelect={()=>onSelect(g)} />)}</div>}
+        {live.length>0 && <p className="mt-2 brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>● LIVE-TREFFER AUS DER WEBSUCHE — QUELLEN VOR ANTRAGSTELLUNG PRÜFEN</p>}
       </div>
 
       {/* translation */}
@@ -376,18 +409,22 @@ function MatchRow({ g, delay, onSelect }) {
     <div className="anim-fadeup rounded-xl border border-cream-200 bg-cream-50 p-4 transition-shadow hover:shadow-[0_8px_24px_-12px_rgba(40,30,20,0.25)]" style={{ animationDelay:`${delay}ms` }}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-ink-900">{g.name}</div>
+          <div className="flex items-center gap-2">
+            {g.live && <span className="brand-mono rounded-full bg-cobalt px-2 py-0.5 text-cream-50" style={{ fontSize:9, letterSpacing:'0.12em' }}>● LIVE</span>}
+            <span className="text-sm font-medium text-ink-900">{g.name}</span>
+          </div>
           <div className="brand-mono mt-0.5 text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>{g.provider} · {g.region} · {g.amount}</div>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className="h-1 w-20 rounded-full bg-cream-300"><div className="h-full rounded-full" style={{ width:`${g.fit}%`, background:'var(--terracotta)' }} /></div>
+            <div className="h-1 w-20 rounded-full bg-cream-300"><div className="h-full rounded-full" style={{ width:`${g.fit}%`, background:g.live?'var(--cobalt)':'var(--terracotta)' }} /></div>
             <span className="brand-mono text-ink-700" style={{ fontSize:11 }}>{g.fit}%</span>
           </div>
           <button onClick={onSelect} className="rounded-full bg-ink-900 px-3.5 py-2 text-xs font-medium text-cream-100 transition-transform hover:scale-[1.04]">Antrag →</button>
         </div>
       </div>
       <p className="mt-2 text-sm leading-relaxed text-ink-700">{g.begruendung}</p>
+      {g.url && <a href={g.url} target="_blank" rel="noopener noreferrer" className="brand-mono mt-1.5 inline-block text-cobalt hover:underline" style={{ fontSize:10, letterSpacing:'0.08em' }}>QUELLE: {g.url.replace(/^https?:\/\//,'').slice(0,60)} ↗</a>}
     </div>);
 }
 
@@ -411,7 +448,8 @@ function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
     (async () => {
       try {
         const fd = new FormData();
-        fd.append('grantId', grant.id);
+        if (grant.live) { fd.append('grantId', '__live__'); fd.append('grant', JSON.stringify(grant)); }
+        else fd.append('grantId', grant.id);
         fd.append('projektname', proj || '');
         if (pitch.trim()) fd.append('pitch', pitch.trim());
         if (file) fd.append('document', file);

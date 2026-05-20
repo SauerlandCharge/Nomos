@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { GRANTS, getGrantById } from "./grants.js";
-import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, antragSystem } from "./prompts.js";
+import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, antragSystem } from "./prompts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -121,6 +121,81 @@ app.post("/api/analyze", upload.single("document"), async (req, res) => {
   }
 });
 
+// ── /api/livesearch (Web-Suche nach aktuellen Förderprogrammen) ──────────────
+app.post("/api/livesearch", async (req, res) => {
+  try {
+    const { projektname, einzeiler, branche, phase, region } = req.body || {};
+    if (!einzeiler && !projektname) return res.status(400).json({ error: "Keine Vorhabensbeschreibung." });
+
+    const query =
+      `Vorhaben: ${projektname || "(unbenannt)"}\n` +
+      `Beschreibung: ${einzeiler || ""}\n` +
+      `Branche: ${branche || "k.A."}\nPhase: ${phase || "k.A."}\nRegion: ${region || "k.A."}\n\n` +
+      `Finde aktuelle, reale öffentliche Förderprogramme, die zu diesem Vorhaben passen.`;
+
+    let messages = [{ role: "user", content: query }];
+    let final = null;
+    const c = client();
+    for (let i = 0; i < 6; i++) {
+      const resp = await c.messages.create({
+        model: MODEL,
+        max_tokens: 6000,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "medium" },
+        system: [{ type: "text", text: LIVESEARCH_SYSTEM, cache_control: { type: "ephemeral" } }],
+        tools: [{ type: "web_search_20260209", name: "web_search" }],
+        messages,
+      });
+      if (resp.stop_reason === "pause_turn") {
+        messages = [{ role: "user", content: query }, { role: "assistant", content: resp.content }];
+        continue;
+      }
+      final = resp;
+      break;
+    }
+    if (!final) throw new Error("Websuche nicht abgeschlossen.");
+
+    const fullText = final.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+    const programs = extractPrograms(fullText);
+    res.json({ programs });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+function extractPrograms(text) {
+  let jsonStr = null;
+  const fenced = text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/);
+  if (fenced) jsonStr = fenced[1];
+  else {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start !== -1 && end > start) jsonStr = text.slice(start, end + 1);
+  }
+  if (!jsonStr) return [];
+  try {
+    const parsed = JSON.parse(jsonStr.trim());
+    const list = Array.isArray(parsed) ? parsed : parsed.programs || [];
+    return list
+      .map((p, idx) => ({
+        id: `live-${idx}`,
+        live: true,
+        name: String(p.name || "").slice(0, 200),
+        provider: String(p.provider || "").slice(0, 120),
+        region: String(p.region || "").slice(0, 60),
+        amount: String(p.amount || "k.A.").slice(0, 120),
+        fit: Math.max(0, Math.min(100, parseInt(p.fit, 10) || 60)),
+        begruendung: String(p.begruendung || "").slice(0, 600),
+        url: typeof p.url === "string" && /^https?:\/\//.test(p.url) ? p.url : null,
+      }))
+      .filter((p) => p.name)
+      .sort((a, b) => b.fit - a.fit)
+      .slice(0, 5);
+  } catch {
+    return [];
+  }
+}
+
 // ── /api/translate (Streaming) ───────────────────────────────────────────────
 app.post("/api/translate", async (req, res) => {
   const text = (req.body?.text || "").trim();
@@ -140,7 +215,21 @@ app.post("/api/translate", async (req, res) => {
 // ── /api/generate (Streaming, Antragsentwurf) ─────────────────────────────────
 app.post("/api/generate", upload.single("document"), async (req, res) => {
   try {
-    const grant = getGrantById(req.body.grantId);
+    let grant = getGrantById(req.body.grantId);
+    if (!grant && req.body.grant) {
+      // Live-Treffer aus der Websuche: ad-hoc Grant-Objekt, Felder normalisieren.
+      try {
+        const g = JSON.parse(req.body.grant);
+        grant = {
+          name: String(g.name || "Förderprogramm"),
+          provider: String(g.provider || "k.A."),
+          region: String(g.region || "k.A."),
+          amount: String(g.amount || "k.A."),
+          fundingRate: String(g.fundingRate || "k.A."),
+          eligibility: String(g.begruendung || g.eligibility || "k.A."),
+        };
+      } catch { /* fällt unten in den Fehler */ }
+    }
     if (!grant) return res.status(400).json({ error: "Unbekannte Förderlinie." });
 
     const planBlocks = await buildPlanContent({ text: req.body.pitch, file: req.file });
