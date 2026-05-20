@@ -64,9 +64,23 @@ function hasContent(blocks) {
   return blocks.some((b) => (b.type === "text" && b.text.length > 20) || b.type === "document");
 }
 
+// Akzeptierte Upload-Typen: PDF, DOCX, TXT.
+function isSupportedFile(file) {
+  const mime = file.mimetype || "";
+  const name = (file.originalname || "").toLowerCase();
+  return (
+    mime === "application/pdf" || name.endsWith(".pdf") ||
+    mime.includes("word") || name.endsWith(".docx") ||
+    mime.startsWith("text/") || name.endsWith(".txt")
+  );
+}
+
 // ── /api/analyze ────────────────────────────────────────────────────────────
 app.post("/api/analyze", upload.single("document"), async (req, res) => {
   try {
+    if (req.file && !isSupportedFile(req.file)) {
+      return res.status(400).json({ error: "Nur PDF, DOCX oder TXT werden unterstützt." });
+    }
     const planBlocks = await buildPlanContent({ text: req.body.pitch, file: req.file });
     if (!hasContent(planBlocks)) {
       return res.status(400).json({ error: "Bitte gib einen Businessplan als Text ein oder lade ein PDF/DOCX hoch." });
@@ -233,6 +247,9 @@ app.post("/api/generate", upload.single("document"), async (req, res) => {
     }
     if (!grant) return res.status(400).json({ error: "Unbekannte Förderlinie." });
 
+    if (req.file && !isSupportedFile(req.file)) {
+      return res.status(400).json({ error: "Nur PDF, DOCX oder TXT werden unterstützt." });
+    }
     const planBlocks = await buildPlanContent({ text: req.body.pitch, file: req.file });
     if (!hasContent(planBlocks)) {
       return res.status(400).json({ error: "Kein Businessplan übergeben." });
@@ -260,6 +277,9 @@ app.post("/api/generate", upload.single("document"), async (req, res) => {
 
 app.get("/api/grants", (_req, res) => res.json(GRANTS));
 
+app.get("/healthz", (_req, res) =>
+  res.json({ ok: true, model: MODEL, keyConfigured: !!process.env.ANTHROPIC_API_KEY }));
+
 // Generischer Text-Streamer (Server-Sent-ähnlich, aber plain chunked).
 async function streamText(res, { system, messages, max_tokens, effort }) {
   // Client VOR dem Senden der Header holen, damit ein fehlender Key als
@@ -268,6 +288,7 @@ async function streamText(res, { system, messages, max_tokens, effort }) {
 
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
   const stream = c.messages.stream({

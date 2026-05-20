@@ -437,21 +437,44 @@ function App() {
 const NAV_ITEMS = [['Produkt','produkt'],['Nomos-Engine','engine'],['Förderlinien','foerderlinien'],['Preise','preise']];
 
 function Nav({ page, go, onLogo, startPitch }) {
+  const [open, setOpen] = useState(false);
+  const navTo = (p) => { go(p); setOpen(false); };
   return (
-    <header className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-cream-300 bg-cream-100/85 px-6 py-4 backdrop-blur md:px-12">
-      <button onClick={onLogo} className="flex items-center gap-3">
-        <TelosLockup size={24} />
-        <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.18em' }}>· NOMOS</span>
-      </button>
-      <nav className="hidden gap-8 md:flex">
-        {NAV_ITEMS.map(([l,p]) => (
-          <button key={p} onClick={()=>go(p)}
-            className={"text-sm transition-colors "+(page===p ? 'text-ink-900 font-medium' : 'text-ink-700 hover:text-ink-900')}>
-            {l}
+    <header className="no-print sticky top-0 z-30 border-b border-cream-300 bg-cream-100/85 backdrop-blur">
+      <div className="flex items-center justify-between px-6 py-4 md:px-12">
+        <button onClick={()=>{onLogo();setOpen(false);}} className="flex items-center gap-3">
+          <TelosLockup size={24} />
+          <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.18em' }}>· NOMOS</span>
+        </button>
+        <nav className="hidden gap-8 md:flex">
+          {NAV_ITEMS.map(([l,p]) => (
+            <button key={p} onClick={()=>go(p)}
+              className={"text-sm transition-colors "+(page===p ? 'text-ink-900 font-medium' : 'text-ink-700 hover:text-ink-900')}>
+              {l}
+            </button>
+          ))}
+        </nav>
+        <div className="flex items-center gap-2">
+          <button onClick={startPitch} className="rounded-full bg-ink-900 px-4 py-2 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Pitch hochladen →</button>
+          <button onClick={()=>setOpen(o=>!o)} aria-label="Menü" className="flex h-9 w-9 items-center justify-center rounded-full border border-cream-400 text-ink-900 md:hidden">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              {open
+                ? <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                : <><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></>}
+            </svg>
           </button>
-        ))}
-      </nav>
-      <button onClick={startPitch} className="rounded-full bg-ink-900 px-4 py-2 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Pitch hochladen →</button>
+        </div>
+      </div>
+      {open && (
+        <nav className="anim-fadein flex flex-col gap-1 border-t border-cream-300 px-6 py-3 md:hidden">
+          {NAV_ITEMS.map(([l,p]) => (
+            <button key={p} onClick={()=>navTo(p)}
+              className={"rounded-lg px-3 py-2.5 text-left text-sm transition-colors "+(page===p ? 'bg-cream-50 text-ink-900 font-medium' : 'text-ink-700 hover:bg-cream-50')}>
+              {l}
+            </button>
+          ))}
+        </nav>
+      )}
     </header>
   );
 }
@@ -596,6 +619,7 @@ function Dashboard({ proj, pitch, file, analysis, onSelect }) {
     setTranslating(true); setTranslated('');
     try {
       const res = await fetch('/api/translate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text: sourceText }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); setTranslated('[Fehler: '+(e.error || ('Status '+res.status))+']'); setTranslating(false); return; }
       await readStream(res, (chunk)=>setTranslated(t=>t+chunk));
     } catch (e) { setTranslated('[Fehler: '+e.message+']'); }
     setTranslating(false);
