@@ -72,7 +72,7 @@ app.post("/api/analyze", upload.single("document"), async (req, res) => {
       return res.status(400).json({ error: "Bitte gib einen Businessplan als Text ein oder lade ein PDF/DOCX hoch." });
     }
 
-    const message = await client().messages.create({
+    const stream = client().messages.stream({
       model: MODEL,
       max_tokens: 16000,
       thinking: { type: "adaptive" },
@@ -91,6 +91,7 @@ app.post("/api/analyze", upload.single("document"), async (req, res) => {
         },
       ],
     });
+    const message = await stream.finalMessage();
 
     const textBlock = message.content.find((b) => b.type === "text");
     if (!textBlock) throw new Error("Keine Analyse erhalten.");
@@ -261,11 +262,15 @@ app.get("/api/grants", (_req, res) => res.json(GRANTS));
 
 // Generischer Text-Streamer (Server-Sent-ähnlich, aber plain chunked).
 async function streamText(res, { system, messages, max_tokens, effort }) {
+  // Client VOR dem Senden der Header holen, damit ein fehlender Key als
+  // sauberes JSON-503 (statt leerem 200) zurückkommt.
+  const c = client();
+
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
   res.flushHeaders?.();
 
-  const stream = client().messages.stream({
+  const stream = c.messages.stream({
     model: MODEL,
     max_tokens,
     thinking: { type: "adaptive" },

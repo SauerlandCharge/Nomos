@@ -116,6 +116,271 @@ const SAMPLES = [
   { proj:'GridSense', text:'Wir entwickeln ein KI-Tool zur Vorhersage von Lastspitzen im Stromnetz. Netzbetreiber verteilen Energie effizienter und vermeiden teure Engpässe. Forschungsbasierte Ausgründung, NRW.' },
 ];
 
+/* ── Marketing pages ─────────────────────────────────────────────────────── */
+function Marketing({ page, go, startPitch }) {
+  if (page==='produkt')       return <PageProdukt startPitch={startPitch} />;
+  if (page==='engine')        return <PageEngine startPitch={startPitch} />;
+  if (page==='foerderlinien') return <PageFoerderlinien startPitch={startPitch} />;
+  if (page==='preise')        return <PagePreise startPitch={startPitch} />;
+  return null;
+}
+
+const PageShell = ({ children }) => <main className="anim-fadein mx-auto max-w-6xl px-6 pb-20 pt-12 md:px-12">{children}</main>;
+
+function PageHero({ eyebrow, title, lede, children }) {
+  return (
+    <header className="relative overflow-hidden pb-2">
+      <div className="pointer-events-none absolute -right-16 -top-20 hidden opacity-[0.05] md:block"><ArcMark size={420} color="var(--ink-900)" /></div>
+      <Eyebrow>{eyebrow}</Eyebrow>
+      <h1 className="mt-4 font-sans" style={{ fontSize:'clamp(38px,6vw,66px)', fontWeight:400, letterSpacing:'-0.04em', lineHeight:0.97 }}>{title}</h1>
+      {lede && <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-700">{lede}</p>}
+      {children}
+    </header>
+  );
+}
+
+const Chip = ({ children }) => (
+  <span className="brand-mono rounded-full border border-cream-400 px-2.5 py-1 text-ink-500" style={{ fontSize:10, letterSpacing:'0.06em' }}>{children}</span>);
+
+const SectionLabel = ({ children }) => (
+  <div className="mb-5 flex items-center gap-3">
+    <ArcMark size={22} color="var(--terracotta)" />
+    <Eyebrow>{children}</Eyebrow>
+  </div>);
+
+function PrimaryBtn({ onClick, children }) {
+  return <button onClick={onClick} className="rounded-full bg-ink-900 px-6 py-3 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">{children}</button>;
+}
+function GhostBtn({ onClick, children }) {
+  return <button onClick={onClick} className="rounded-full border border-ink-900 px-6 py-3 text-sm font-medium text-ink-900 transition-colors hover:bg-ink-900 hover:text-cream-100">{children}</button>;
+}
+
+function CTAband({ startPitch }) {
+  return (
+    <div className="relative mt-16 flex flex-col items-start gap-5 overflow-hidden rounded-3xl bg-ink-900 p-8 text-cream-100 md:flex-row md:items-center md:justify-between md:p-10">
+      <div className="pointer-events-none absolute -right-10 -bottom-12 opacity-[0.12]"><ArcMark size={300} color="var(--terracotta)" /></div>
+      <div className="relative flex items-center gap-4">
+        <NomosMark size={36} color="var(--cream-100)" />
+        <div>
+          <div className="brand-mono" style={{ fontSize:10, letterSpacing:'0.16em', color:'rgba(245,240,230,0.55)' }}>NOMOS · INSIDE</div>
+          <div className="brand-serif italic" style={{ fontSize:26, lineHeight:1.1 }}>Vom Pitch zum Bescheid. Reibungslos.</div>
+        </div>
+      </div>
+      <button onClick={startPitch} className="relative rounded-full bg-cream-50 px-6 py-3 text-sm font-medium text-ink-900 transition-transform hover:scale-[1.03]">Pitch hochladen →</button>
+    </div>
+  );
+}
+
+/* Produkt */
+function PageProdukt({ startPitch }) {
+  const feats = [
+    ['Dokument-Analyse', 'Nomos liest dein PDF, DOCX oder deinen Text und versteht Vorhaben, Phase und Region — ganz ohne Vorlagen.'],
+    ['Hyperlokales Matching', 'Abgleich mit kuratierten Förderlinien aus Bund, Ländern und EU — jede mit Konfidenz und ehrlicher Begründung.'],
+    ['Behörden-Übersetzung', 'Gründer-Slang wird zu präzisem Behördendeutsch — nominalstil, sachlich, ohne erfundene Fakten.'],
+    ['Antrags-Entwurf', '80 % des offiziellen Antrags als strukturierter Entwurf — exportierbar, mit klaren „Bitte ergänzen“-Markern.'],
+  ];
+  const steps = [
+    ['01','Plan einlesen','Lade Pitch-Deck oder Businessplan hoch — oder füge deinen Text ein.'],
+    ['02','Hyperlokal matchen','Nomos findet passende Töpfe und bewertet jede Förderlinie.'],
+    ['03','Übersetzen','Ein Klick verwandelt Slang in formelles Behördendeutsch.'],
+    ['04','Antrag generieren','80 % des Antrags entstehen live — exportierbar als PDF.'],
+  ];
+  return (
+    <PageShell>
+      <PageHero eyebrow="PRODUKT · TELOS"
+        title={<>Ein Antrag.<br/>Vier Schritte.<br/><em className="brand-serif italic" style={{ fontWeight:400 }}>Achtzig Prozent</em> weniger Arbeit.</>}
+        lede="Telos übersetzt deinen Businessplan in formelle Fördersprache — findet passende Töpfe und schreibt den Großteil des Antrags. Auf Knopfdruck.">
+        <div className="mt-8 flex flex-wrap gap-3"><PrimaryBtn onClick={startPitch}>Pitch hochladen</PrimaryBtn><GhostBtn onClick={startPitch}>Live ausprobieren</GhostBtn></div>
+      </PageHero>
+
+      <div className="mt-16"><SectionLabel>WAS NOMOS LEISTET</SectionLabel>
+        <div className="grid gap-3 md:grid-cols-2">
+          {feats.map(([t,d],i)=>(
+            <div key={t} className="rounded-3xl border border-cream-300 bg-cream-50 p-6">
+              <div className="flex items-center gap-3">
+                <span className="brand-mono text-terracotta" style={{ fontSize:11, letterSpacing:'0.14em' }}>{String(i+1).padStart(2,'0')}</span>
+                <div className="text-base font-medium text-ink-900">{t}</div>
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-ink-700">{d}</p>
+            </div>))}
+        </div>
+      </div>
+
+      <div className="mt-16"><SectionLabel>SO FUNKTIONIERT'S</SectionLabel>
+        <div className="grid gap-3 md:grid-cols-4">
+          {steps.map(([n,t,d])=>(
+            <div key={n} className="rounded-2xl border border-cream-300 bg-cream-100 p-5">
+              <span className="brand-mono text-ink-300" style={{ fontSize:11, letterSpacing:'0.14em' }}>{n}</span>
+              <div className="mt-2 text-sm font-medium text-ink-900">{t}</div>
+              <p className="mt-1 text-sm leading-relaxed text-ink-700">{d}</p>
+            </div>))}
+        </div>
+      </div>
+
+      <div className="mt-16"><SectionLabel>NOMOS · LIVE</SectionLabel>
+        <div className="grid items-stretch gap-3 md:grid-cols-[1fr_56px_1fr]">
+          <div className="rounded-2xl border border-cream-300 bg-cream-50 p-5">
+            <div className="brand-mono mb-2 text-ink-500" style={{ fontSize:10, letterSpacing:'0.14em' }}>GRÜNDER-SLANG</div>
+            <p className="text-sm leading-relaxed text-ink-900">„Wir disrupten den Förder­markt mit KI und skalieren Bewilligungs­quoten exponentiell.“</p>
+          </div>
+          <div className="flex items-center justify-center"><ArcMark size={34} color="var(--terracotta)" /></div>
+          <div className="rounded-2xl bg-ink-900 p-5 text-cream-100">
+            <div className="brand-mono mb-2" style={{ fontSize:10, letterSpacing:'0.14em', color:'rgba(245,240,230,0.5)' }}>BEHÖRDEN-DEUTSCH</div>
+            <p className="text-sm leading-relaxed">„Entwicklung einer KI-gestützten Software­plattform zur effizienteren Vermittlung öffentlicher Fördermittel mit messbar erhöhter Antrags­erfolgs­quote.“</p>
+          </div>
+        </div>
+      </div>
+
+      <CTAband startPitch={startPitch} />
+    </PageShell>
+  );
+}
+
+/* Nomos-Engine */
+function PageEngine({ startPitch }) {
+  const caps = [
+    ['Analyse', 'Versteht Vorhaben, Phase und Region aus PDF, DOCX oder Text.'],
+    ['Matching', 'Kuratierte Förderdatenbank + Live-Websuche nach aktuellen Programmen.'],
+    ['Übersetzung', 'Gründer-Slang → Behördendeutsch, ohne neue Fakten zu erfinden.'],
+    ['Antrag', 'Strukturierter Entwurf von ~80 % des Förderantrags.'],
+  ];
+  const tech = ['Claude Opus 4.7','Strukturierte Outputs','Live-Websuche','Prompt-Caching','PDF & DOCX nativ','Serverseitig & sicher'];
+  return (
+    <PageShell>
+      <PageHero eyebrow="SUB-BRAND · DIE KI-ENGINE"
+        title={<>Nomos. <em className="brand-serif italic" style={{ fontWeight:400 }}>Im Inneren.</em></>}
+        lede="Nomos (griech. νόμος — Gesetz, Ordnung) ist die Übersetzungs-Engine von Telos. Sie spricht beide Sprachen — Gründer-Slang und Behördendeutsch. Eigene Marke, gleiche Familie." />
+
+      <div className="mt-10 grid gap-6 lg:grid-cols-[1.05fr_1fr]">
+        <div className="relative flex flex-col justify-between overflow-hidden rounded-3xl bg-ink-900 p-8 text-cream-100 md:p-10" style={{ minHeight:340 }}>
+          <div className="flex items-center justify-between">
+            <span className="brand-mono" style={{ fontSize:11, letterSpacing:'0.18em', color:'rgba(245,240,230,0.6)' }}>ENGINE · v1.0</span>
+            <span className="brand-mono" style={{ fontSize:11, letterSpacing:'0.18em', color:'rgba(245,240,230,0.6)' }}>POWERED BY TELOS</span>
+          </div>
+          <div className="flex items-center gap-6 py-8">
+            <NomosMark size={88} color="var(--cream-100)" />
+            <div>
+              <div className="font-sans" style={{ fontSize:'clamp(56px,9vw,84px)', fontWeight:400, letterSpacing:'-0.055em', lineHeight:0.85 }}>nomos</div>
+              <div className="brand-mono mt-3" style={{ fontSize:11, letterSpacing:'0.18em', color:'rgba(245,240,230,0.55)' }}>THE TRANSLATION ENGINE</div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between border-t border-white/10 pt-4">
+            <span className="brand-mono" style={{ fontSize:11, color:'rgba(245,240,230,0.55)' }}>FOUNDER → BEHÖRDE</span>
+            <span className="brand-mono" style={{ fontSize:11, color:'var(--honey)' }}>● READY</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-3">
+          {caps.map(([t,d])=>(
+            <div key={t} className="flex items-start gap-3 rounded-2xl border border-cream-300 bg-cream-50 p-5">
+              <NomosMark size={22} color="var(--ink-900)" />
+              <div><div className="text-sm font-medium text-ink-900">{t}</div><p className="mt-1 text-sm leading-relaxed text-ink-700">{d}</p></div>
+            </div>))}
+        </div>
+      </div>
+
+      <div className="mt-12"><SectionLabel>UNTER DER HAUBE</SectionLabel>
+        <div className="flex flex-wrap gap-2">{tech.map(t=><Chip key={t}>{t}</Chip>)}</div>
+        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-700">
+          Jeder Aufruf läuft serverseitig über die offizielle Anthropic-API — dein API-Key bleibt im Backend und gelangt nie in den Browser.
+          Hochgeladene Pläne werden zur Verarbeitung gesendet und nicht dauerhaft gespeichert.
+        </p>
+      </div>
+
+      <CTAband startPitch={startPitch} />
+    </PageShell>
+  );
+}
+
+/* Förderlinien */
+function PageFoerderlinien({ startPitch }) {
+  const [grants, setGrants] = useState([]);
+  const [filter, setFilter] = useState('alle');
+  useEffect(() => { fetch('/api/grants').then(r=>r.json()).then(setGrants).catch(()=>{}); }, []);
+  const levels = [['alle','Alle'],['national','Bund'],['land','Länder'],['eu','EU']];
+  const shown = grants.filter(g => filter==='alle' || g.level===filter);
+  return (
+    <PageShell>
+      <PageHero eyebrow="FÖRDERLINIEN"
+        title={<>{grants.length || ''} kuratierte Töpfe.<br/><em className="brand-serif italic" style={{ fontWeight:400 }}>Bund, Länder, EU.</em></>}
+        lede="Diese Programme kennt Nomos sofort. Per Live-Websuche ergänzt die Engine zusätzlich aktuelle Programme direkt aus dem Web." />
+
+      <div className="mt-8 flex flex-wrap gap-2">
+        {levels.map(([k,l])=>(
+          <button key={k} onClick={()=>setFilter(k)}
+            className={"rounded-full px-4 py-2 text-xs transition-colors "+(filter===k ? 'bg-ink-900 text-cream-100' : 'border border-cream-400 text-ink-700 hover:border-ink-900')}>{l}</button>))}
+      </div>
+
+      <div className="mt-6 grid gap-3 md:grid-cols-2">
+        {shown.map(g=>(
+          <div key={g.id} className="relative rounded-3xl border border-cream-300 bg-cream-50 p-6">
+            <div className="pointer-events-none absolute right-5 top-5 opacity-20"><NomosMark size={18} color="var(--ink-900)" /></div>
+            <div className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>{g.region}</div>
+            <div className="mt-1 pr-6 text-base font-medium text-ink-900">{g.name}</div>
+            <div className="mt-1 text-sm text-ink-700">{g.provider}</div>
+            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1">
+              <div><div className="brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.12em' }}>FÖRDERHÖHE</div><div className="text-sm text-ink-900">{g.amount}</div></div>
+              <div><div className="brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.12em' }}>QUOTE</div><div className="text-sm text-ink-900">{g.fundingRate}</div></div>
+            </div>
+            <p className="mt-3 text-sm leading-relaxed text-ink-700">{g.eligibility}</p>
+            <div className="mt-4 flex flex-wrap gap-1.5">{(g.focus||[]).slice(0,5).map(f=><Chip key={f}>{f}</Chip>)}</div>
+          </div>))}
+      </div>
+      <p className="mt-5 brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>● BETRÄGE & QUOTEN SIND RICHTWERTE — VOR ANTRAGSTELLUNG ÜBER FOERDERDATENBANK.DE PRÜFEN</p>
+
+      <CTAband startPitch={startPitch} />
+    </PageShell>
+  );
+}
+
+/* Preise */
+function PagePreise({ startPitch }) {
+  const tiers = [
+    { name:'Solo', price:'0 €', per:'für den Start', highlight:false,
+      features:['Plan-Analyse mit KI','Hyperlokales Matching','Behörden-Übersetzung','1 Antragsentwurf / Monat'], cta:'Kostenlos starten' },
+    { name:'Pro', price:'49 €', per:'/ Monat', highlight:true,
+      features:['Alles aus Solo','Unbegrenzte Antragsentwürfe','Live-Websuche nach Programmen','PDF & DOCX-Upload','PDF-Export'], cta:'Pro wählen' },
+    { name:'Team', price:'199 €', per:'/ Monat', highlight:false,
+      features:['Alles aus Pro','Bis zu 10 Nutzer:innen','Geteilte Antragsbibliothek','Prioritäts-Support'], cta:'Team anfragen' },
+  ];
+  return (
+    <PageShell>
+      <PageHero eyebrow="PREISE"
+        title={<>Transparent. <em className="brand-serif italic" style={{ fontWeight:400 }}>Nutzungsbasiert.</em></>}
+        lede="Starte kostenlos. Skaliere, wenn du mehr Anträge stellst. Keine versteckten Kosten." />
+
+      <div className="mt-10 grid gap-4 md:grid-cols-3">
+        {tiers.map(t=>(
+          <div key={t.name}
+            className={"relative flex flex-col rounded-3xl p-7 "+(t.highlight ? 'bg-ink-900 text-cream-100' : 'border border-cream-300 bg-cream-50 text-ink-900')}>
+            {t.highlight && <span className="brand-mono absolute right-6 top-6 rounded-full bg-honey px-2.5 py-1 text-ink-900" style={{ fontSize:9, letterSpacing:'0.12em' }}>BELIEBT</span>}
+            <div className="brand-mono uppercase" style={{ fontSize:10, letterSpacing:'0.16em', color:t.highlight?'rgba(245,240,230,0.55)':'var(--ink-500)' }}>{t.name}</div>
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="font-sans" style={{ fontSize:40, fontWeight:500, letterSpacing:'-0.03em' }}>{t.price}</span>
+              <span className="text-sm" style={{ color:t.highlight?'rgba(245,240,230,0.6)':'var(--ink-500)' }}>{t.per}</span>
+            </div>
+            <ul className="mt-5 flex flex-1 flex-col gap-2.5">
+              {t.features.map(f=>(
+                <li key={f} className="flex gap-2.5 text-sm" style={{ color:t.highlight?'rgba(245,240,230,0.9)':'var(--ink-700)' }}>
+                  <span style={{ color:t.highlight?'var(--honey)':'var(--terracotta)' }}>✓</span><span>{f}</span></li>))}
+            </ul>
+            <button onClick={startPitch}
+              className={"mt-6 rounded-full px-5 py-3 text-sm font-medium transition-transform hover:scale-[1.03] "+(t.highlight ? 'bg-cream-50 text-ink-900' : 'bg-ink-900 text-cream-100')}>{t.cta}</button>
+          </div>))}
+      </div>
+
+      <div className="mt-8 rounded-3xl border border-cream-300 bg-cream-100 p-6">
+        <div className="flex items-center gap-3"><NomosMark size={20} color="var(--ink-900)" /><div className="text-sm font-medium text-ink-900">Self-Hosted / Open-Core</div></div>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-700">
+          Du kannst Telos auch selbst betreiben und mit deinem eigenen Anthropic-Key nutzen. Dann zahlst du nur die KI-Nutzung
+          (nutzungsbasiert, typischerweise wenige Cent bis wenige Euro pro Analyse + Antrag) — ohne Abo. Setup in der README.
+        </p>
+      </div>
+
+      <CTAband startPitch={startPitch} />
+    </PageShell>
+  );
+}
+
 /* ── App shell ───────────────────────────────────────────────────────────── */
 function App() {
   const [view, setView] = useState('landing');
@@ -146,31 +411,47 @@ function App() {
     }
   }
 
+  const [page, setPage] = useState('home');
   function reset() { setView('landing'); setSelected(null); setAnalysis(null); setError(''); }
+  function go(p) { setPage(p); }
+  function startPitch() { setPage('home'); setView('landing'); }
+
+  useEffect(() => { window.scrollTo({ top:0, behavior:'instant' }); }, [page, view]);
 
   return (
     <div className="min-h-screen bg-cream-100">
-      <Nav onHome={reset} />
-      {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} />}
-      {view==='analyze'   && <Analyzing proj={proj} />}
-      {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis}} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
-      {view==='antrag'    && <Antrag {...{proj,pitch,file,grant:selected}} onBack={()=>setView('dashboard')} onReset={reset} />}
-      <Footer />
+      <Nav page={page} go={go} onLogo={()=>setPage('home')} startPitch={startPitch} />
+      {page !== 'home'
+        ? <Marketing page={page} go={go} startPitch={startPitch} />
+        : <>
+            {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} />}
+            {view==='analyze'   && <Analyzing proj={proj} />}
+            {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis}} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
+            {view==='antrag'    && <Antrag {...{proj,pitch,file,grant:selected}} onBack={()=>setView('dashboard')} onReset={reset} />}
+          </>}
+      <Footer go={go} startPitch={startPitch} />
     </div>
   );
 }
 
-function Nav({ onHome }) {
+const NAV_ITEMS = [['Produkt','produkt'],['Nomos-Engine','engine'],['Förderlinien','foerderlinien'],['Preise','preise']];
+
+function Nav({ page, go, onLogo, startPitch }) {
   return (
     <header className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-cream-300 bg-cream-100/85 px-6 py-4 backdrop-blur md:px-12">
-      <button onClick={onHome} className="flex items-center gap-3">
+      <button onClick={onLogo} className="flex items-center gap-3">
         <TelosLockup size={24} />
         <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.18em' }}>· NOMOS</span>
       </button>
       <nav className="hidden gap-8 md:flex">
-        {['Produkt','Nomos-Engine','Förderlinien','Preise'].map(l => <span key={l} className="text-sm text-ink-700 cursor-default">{l}</span>)}
+        {NAV_ITEMS.map(([l,p]) => (
+          <button key={p} onClick={()=>go(p)}
+            className={"text-sm transition-colors "+(page===p ? 'text-ink-900 font-medium' : 'text-ink-700 hover:text-ink-900')}>
+            {l}
+          </button>
+        ))}
       </nav>
-      <button onClick={onHome} className="rounded-full bg-ink-900 px-4 py-2 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Neuer Pitch →</button>
+      <button onClick={startPitch} className="rounded-full bg-ink-900 px-4 py-2 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Pitch hochladen →</button>
     </header>
   );
 }
@@ -512,13 +793,33 @@ function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
   );
 }
 
-function Footer() {
+function Footer({ go, startPitch }) {
   return (
-    <footer className="no-print border-t border-cream-300 px-6 py-8 md:px-12">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3"><TelosLockup size={20} />
-          <span className="brand-serif italic text-ink-700" style={{ fontSize:16 }}>From Vision to Grant. Seamlessly.</span></div>
-        <span className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>powered by Nomos · Berlin · Wien · Zürich</span>
+    <footer className="no-print border-t border-cream-300 px-6 py-12 md:px-12">
+      <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.4fr_1fr_1fr]">
+        <div>
+          <div className="flex items-center gap-3"><TelosLockup size={22} />
+            <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.18em' }}>· NOMOS</span></div>
+          <p className="mt-4 max-w-xs brand-serif italic text-ink-700" style={{ fontSize:18 }}>From Vision to Grant. Seamlessly.</p>
+          <p className="mt-3 max-w-xs text-sm leading-relaxed text-ink-500">Telos übersetzt rohe Startup-Visionen in strukturierte institutionelle Realität.</p>
+        </div>
+        <div>
+          <div className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>Produkt</div>
+          <ul className="mt-3 flex flex-col gap-2">
+            {NAV_ITEMS.map(([l,p]) => (
+              <li key={p}><button onClick={()=>go(p)} className="text-sm text-ink-700 transition-colors hover:text-ink-900">{l}</button></li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <div className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>Los geht's</div>
+          <button onClick={startPitch} className="mt-3 rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Pitch hochladen →</button>
+          <p className="mt-4 brand-mono uppercase text-ink-300" style={{ fontSize:10, letterSpacing:'0.14em' }}>Berlin · Wien · Zürich</p>
+        </div>
+      </div>
+      <div className="mx-auto mt-10 flex max-w-6xl items-center justify-between border-t border-cream-300 pt-5">
+        <span className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>© 2026 Telos AI · powered by Nomos</span>
+        <NomosMark size={18} color="var(--ink-300)" />
       </div>
     </footer>);
 }
