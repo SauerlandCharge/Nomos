@@ -53,6 +53,9 @@ Claude Opus 4.7  (adaptive thinking, prompt caching)
 
 ## Lokal starten
 
+> 🍎 **Mac-Nutzer ohne Vorkenntnisse?** Die Schritt-für-Schritt-Anleitung nur fürs Terminal
+> steht in **[SCHNELLSTART-MAC.md](SCHNELLSTART-MAC.md)**.
+
 ```bash
 # 1. Abhängigkeiten installieren
 npm install
