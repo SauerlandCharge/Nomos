@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Telos · Nomos — Vom Pitch zum Bescheid</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js" crossorigin></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@14.1.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: {
+        colors: {
+          cream: { 50:'#F7F2E7', 100:'#F1ECDE', 200:'#E8E1CE', 300:'#DCD3BB', 400:'#C8BD9F' },
+          ink:   { 900:'#26221C', 700:'#46403A', 500:'#736C63', 300:'#A8A199' },
+          terracotta:'#C26A4C', honey:'#D5A55B', cobalt:'#4D6A8B',
+        },
+        fontFamily: {
+          sans:['Geist','ui-sans-serif','system-ui','sans-serif'],
+          serif:['Instrument Serif','Georgia','serif'],
+          mono:['JetBrains Mono','ui-monospace','monospace'],
+        },
+      } },
+    };
+  </script>
+  <style>
+    :root{ --cream-50:#F7F2E7; --cream-100:#F1ECDE; --cream-200:#E8E1CE; --cream-300:#DCD3BB; --cream-400:#C8BD9F;
+      --ink-900:#26221C; --ink-700:#46403A; --ink-500:#736C63; --ink-300:#A8A199;
+      --terracotta:#C26A4C; --honey:#D5A55B; --cobalt:#4D6A8B; }
+    html,body{margin:0;padding:0;background:var(--cream-100);min-height:100vh;}
+    body{font-family:'Geist',ui-sans-serif,system-ui,sans-serif;color:var(--ink-900);-webkit-font-smoothing:antialiased;letter-spacing:-0.005em;}
+    .brand-serif{font-family:'Instrument Serif','Georgia',serif;}
+    .brand-mono{font-family:'JetBrains Mono',ui-monospace,monospace;}
+    ::selection{background:var(--terracotta);color:var(--cream-50);}
+    *::-webkit-scrollbar{width:10px;height:10px;}
+    *::-webkit-scrollbar-thumb{background:var(--cream-400);border-radius:99px;border:3px solid var(--cream-100);}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+    @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+    @keyframes spin{to{transform:rotate(360deg);}}
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
+    @keyframes sweep{0%{transform:translateX(-100%);}100%{transform:translateX(220%);}}
+    @keyframes indet{0%{left:-40%;}100%{left:100%;}}
+    .anim-fadeup{animation:fadeUp .5s cubic-bezier(.2,.7,.3,1) both;}
+    .anim-fadein{animation:fadeIn .6s ease both;}
+    .spin{animation:spin 1s linear infinite;display:inline-flex;}
+    .dot-pulse{animation:pulse 1.4s ease-in-out infinite;}
+    .scan-line{position:absolute;inset:0;overflow:hidden;border-radius:inherit;pointer-events:none;}
+    .scan-line::before{content:'';position:absolute;top:0;left:0;width:40%;height:100%;
+      background:linear-gradient(90deg,transparent,rgba(194,106,76,0.18),transparent);animation:sweep 1.6s ease-in-out infinite;}
+    .indet{position:absolute;top:0;height:100%;width:40%;background:var(--honey);border-radius:99px;animation:indet 1.1s ease-in-out infinite;}
+    /* markdown */
+    .md h1{font-size:30px;font-weight:500;letter-spacing:-0.03em;margin:0 0 8px;}
+    .md h2{font-size:19px;font-weight:600;letter-spacing:-0.02em;margin:26px 0 8px;}
+    .md h3{font-size:15px;font-weight:600;margin:18px 0 6px;}
+    .md p{font-size:15px;line-height:1.7;color:var(--ink-700);margin:0 0 10px;}
+    .md ul,.md ol{margin:0 0 12px;padding-left:20px;}
+    .md li{font-size:15px;line-height:1.7;color:var(--ink-700);margin:3px 0;}
+    .md strong{color:var(--ink-900);font-weight:600;}
+    .md table{width:100%;border-collapse:collapse;margin:10px 0 16px;font-size:14px;}
+    .md th,.md td{border:1px solid var(--cream-300);padding:8px 12px;text-align:left;}
+    .md th{background:var(--cream-200);font-weight:600;}
+    .md em{font-style:italic;}
+    @media print{ .no-print{display:none!important;} body{background:#fff;} }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useMemo } = React;
+
+/* ── Brand atoms ─────────────────────────────────────────────────────────── */
+function Wordmark({ size=26, color='var(--ink-900)' }) {
+  return <span style={{ fontFamily:"'Geist',sans-serif", fontSize:size, fontWeight:500, letterSpacing:'-0.055em', color, lineHeight:0.85 }}>Telos</span>;
+}
+function TelosLockup({ size=26, accent='var(--terracotta)' }) {
+  return <span style={{ display:'inline-flex', alignItems:'baseline' }}><Wordmark size={size} />
+    <span style={{ width:size*0.18, height:size*0.18, borderRadius:99, background:accent, display:'inline-block', marginLeft:size*0.06, transform:`translateY(-${size*0.02}px)` }} /></span>;
+}
+function ArcMark({ size=96, color='var(--terracotta)' }) {
+  const sw = size*0.085;
+  return <svg width={size} height={size*0.62} viewBox="0 0 100 62" fill="none" style={{ overflow:'visible' }}>
+    <path d="M6 56 V28 A 44 44 0 0 1 94 28 V56" stroke={color} strokeWidth={sw} strokeLinecap="round" fill="none" /></svg>;
+}
+function NomosMark({ size=80, color='var(--cream-100)' }) {
+  const sw = size*0.13;
+  return <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
+    <rect x="8" y="22" width="26" height={sw} rx={sw/2} fill={color} opacity="0.55" />
+    <rect x="14" y="46" width="20" height={sw} rx={sw/2} fill={color} opacity="0.75" />
+    <rect x="8" y="70" width="26" height={sw} rx={sw/2} fill={color} opacity="0.55" />
+    <rect x="46" y="22" width={sw} height="62" rx={sw/2} fill={color} />
+    <rect x="62" y="22" width="30" height={sw} rx={sw/2} fill={color} />
+    <rect x="62" y="46" width="30" height={sw} rx={sw/2} fill={color} />
+    <rect x="62" y="70" width="30" height={sw} rx={sw/2} fill={color} /></svg>;
+}
+const Eyebrow = ({ children, className='' }) => (
+  <div className={"brand-mono uppercase text-ink-500 "+className} style={{ fontSize:10, letterSpacing:'0.18em' }}>{children}</div>);
+function NomosBadge() {
+  return <span className="inline-flex items-center gap-2 rounded-full bg-cream-200 px-3 py-1.5">
+    <NomosMark size={14} color="var(--ink-900)" />
+    <span className="brand-mono text-ink-900" style={{ fontSize:11, letterSpacing:'0.14em' }}>NOMOS · INSIDE</span></span>;
+}
+
+const SAMPLES = [
+  { proj:'Helios', text:'Wir bauen eine Plug-&-Play-Battery, die jeder Hausbesitzer an seine bestehende Solaranlage hängen kann. Massiv günstiger als alles am Markt — und in 20 Minuten installiert. Sitz in Bayern, noch vor der Gründung, kommen aus der TU München.' },
+  { proj:'MediFlow', text:'Unsere App nutzt KI, um Patientendaten in Kliniken automatisch zu strukturieren. Spart Pflegekräften krass viel Zeit und reduziert Doku-Fehler. Wir sind ein Seed-Startup aus Berlin, suchen FuE-Förderung.' },
+  { proj:'GridSense', text:'Wir entwickeln ein KI-Tool zur Vorhersage von Lastspitzen im Stromnetz. Netzbetreiber verteilen Energie effizienter und vermeiden teure Engpässe. Forschungsbasierte Ausgründung, NRW.' },
+];
+
+/* ── App shell ───────────────────────────────────────────────────────────── */
+function App() {
+  const [view, setView] = useState('landing');
+  const [proj, setProj] = useState('');
+  const [pitch, setPitch] = useState('');
+  const [file, setFile] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [error, setError] = useState('');
+
+  async function analyze() {
+    setError('');
+    setView('analyze');
+    try {
+      const fd = new FormData();
+      if (proj.trim()) fd.append('projektname', proj.trim());
+      if (pitch.trim()) fd.append('pitch', pitch.trim());
+      if (file) fd.append('document', file);
+      const res = await fetch('/api/analyze', { method:'POST', body: fd });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || `Fehler ${res.status}`); }
+      const data = await res.json();
+      setAnalysis(data);
+      if (!proj.trim() && data.projektname) setProj(data.projektname);
+      setView('dashboard');
+    } catch (e) {
+      setError(e.message);
+      setView('landing');
+    }
+  }
+
+  function reset() { setView('landing'); setSelected(null); setAnalysis(null); setError(''); }
+
+  return (
+    <div className="min-h-screen bg-cream-100">
+      <Nav onHome={reset} />
+      {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} />}
+      {view==='analyze'   && <Analyzing proj={proj} />}
+      {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis}} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
+      {view==='antrag'    && <Antrag {...{proj,pitch,file,grant:selected}} onBack={()=>setView('dashboard')} onReset={reset} />}
+      <Footer />
+    </div>
+  );
+}
+
+function Nav({ onHome }) {
+  return (
+    <header className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-cream-300 bg-cream-100/85 px-6 py-4 backdrop-blur md:px-12">
+      <button onClick={onHome} className="flex items-center gap-3">
+        <TelosLockup size={24} />
+        <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.18em' }}>· NOMOS</span>
+      </button>
+      <nav className="hidden gap-8 md:flex">
+        {['Produkt','Nomos-Engine','Förderlinien','Preise'].map(l => <span key={l} className="text-sm text-ink-700 cursor-default">{l}</span>)}
+      </nav>
+      <button onClick={onHome} className="rounded-full bg-ink-900 px-4 py-2 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Neuer Pitch →</button>
+    </header>
+  );
+}
+
+/* ── Landing ─────────────────────────────────────────────────────────────── */
+function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnalyze }) {
+  const [drag, setDrag] = useState(false);
+  const inputRef = useRef(null);
+  const canGo = pitch.trim().length > 24 || !!file;
+
+  function onDrop(e){ e.preventDefault(); setDrag(false); const f=e.dataTransfer.files?.[0]; if(f) setFile(f); }
+
+  return (
+    <main className="anim-fadein mx-auto max-w-7xl px-6 pb-24 pt-12 md:px-12">
+      <div className="grid items-start gap-12 lg:grid-cols-[1.1fr_1fr]">
+        <div>
+          <NomosBadge />
+          <h1 className="mt-6 font-sans" style={{ fontSize:'clamp(46px,7vw,82px)', fontWeight:400, letterSpacing:'-0.04em', lineHeight:0.94 }}>
+            Vom Pitch<br/>zum <em className="brand-serif italic" style={{ fontWeight:400 }}>Bescheid</em>.<br/>Reibungslos.
+          </h1>
+          <p className="mt-6 max-w-md text-lg leading-relaxed text-ink-700">
+            Lade deinen echten Businessplan hoch. Nomos analysiert ihn mit KI, findet passende
+            Förderlinien und schreibt 80&nbsp;% des Antrags in formellem Behördendeutsch.
+          </p>
+          <div className="mt-9 rounded-3xl border border-cream-300 bg-cream-50 p-5">
+            <Eyebrow>SCHRITT 1 · DEIN VORHABEN</Eyebrow>
+            <input value={proj} onChange={e=>setProj(e.target.value)} placeholder="Projektname (optional — Nomos erkennt ihn sonst)"
+              className="mt-3 w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 text-sm font-medium outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
+
+            {/* dropzone */}
+            <div onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={onDrop}
+              onClick={()=>inputRef.current?.click()}
+              className={"mt-3 cursor-pointer rounded-xl border border-dashed px-4 py-4 text-center text-sm transition-colors "+(drag?'border-ink-900 bg-cream-200':'border-cream-400 hover:border-ink-700')}>
+              <input ref={inputRef} type="file" accept=".pdf,.docx,.txt,application/pdf" className="hidden"
+                onChange={e=>setFile(e.target.files?.[0]||null)} />
+              {file
+                ? <span className="text-ink-900">{file.name} · <button onClick={(e)=>{e.stopPropagation();setFile(null);}} className="text-terracotta underline">entfernen</button></span>
+                : <span className="text-ink-500">Pitch-Deck / Businessplan als <strong className="text-ink-700">PDF, DOCX oder TXT</strong> hierher ziehen oder klicken</span>}
+            </div>
+
+            <textarea value={pitch} onChange={e=>setPitch(e.target.value)} rows={4}
+              placeholder="… oder beschreibe deine Idee als Text (auch in lockerem Gründer-Slang)."
+              className="mt-3 w-full resize-none rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>BEISPIELE:</span>
+              {SAMPLES.map(s => <button key={s.proj} onClick={()=>{setProj(s.proj);setPitch(s.text);setFile(null);}}
+                className="rounded-full border border-cream-400 px-3 py-1 text-xs text-ink-700 transition-colors hover:border-ink-900 hover:text-ink-900">{s.proj}</button>)}
+            </div>
+
+            {error && <div className="mt-4 rounded-xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-ink-900">{error}</div>}
+
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <span className="brand-mono text-ink-500" style={{ fontSize:10 }}>{canGo ? 'bereit' : 'Text (min. 25 Z.) oder Datei'}</span>
+              <button onClick={onAnalyze} disabled={!canGo}
+                className="rounded-full bg-ink-900 px-5 py-3 text-sm font-medium text-cream-100 transition-all enabled:hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-30">
+                Mit Nomos analysieren →
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-10 flex flex-wrap gap-8 border-t border-cream-300 pt-6">
+            {[['Echte KI','Claude Opus · serverseitig'],['PDF & DOCX','native Dokument-Analyse'],['80 %','des Antrags vorbereitet']].map(([v,l])=>(
+              <div key={l}><div className="font-sans" style={{ fontSize:20, fontWeight:500, letterSpacing:'-0.02em' }}>{v}</div>
+                <div className="brand-mono mt-1 uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>{l}</div></div>))}
+          </div>
+        </div>
+
+        {/* explainer card */}
+        <div className="rounded-3xl border border-cream-300 bg-cream-50 p-6 lg:sticky lg:top-24">
+          <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>SO ARBEITET NOMOS</span>
+          <div className="mt-5 flex flex-col gap-4">
+            {[['01','Plan einlesen','Nomos liest dein PDF/DOCX oder deinen Text und extrahiert das Vorhaben.'],
+              ['02','Hyperlokal matchen','Abgleich mit kuratierten Förderlinien aus Bund, Ländern und EU — mit Konfidenz und Begründung.'],
+              ['03','Übersetzen','Gründer-Slang → präzises Behördendeutsch, ohne neue Fakten zu erfinden.'],
+              ['04','Antrag generieren','80 % des offiziellen Antrags als strukturierter Entwurf — exportierbar.']].map(([n,t,d])=>(
+              <div key={n} className="flex gap-4">
+                <span className="brand-mono text-terracotta" style={{ fontSize:11, letterSpacing:'0.14em' }}>{n}</span>
+                <div><div className="text-sm font-medium text-ink-900">{t}</div><div className="mt-1 text-sm leading-relaxed text-ink-700">{d}</div></div>
+              </div>))}
+          </div>
+          <div className="mt-6 flex items-center justify-center"><ArcMark size={36} color="var(--terracotta)" /></div>
+          <p className="mt-3 text-center brand-serif italic text-ink-700" style={{ fontSize:16 }}>From Vision to Grant. Seamlessly.</p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ── Analyzing overlay ──────────────────────────────────────────────────── */
+const STEPS = ['Dokument wird eingelesen …','Vorhaben & Merkmale werden extrahiert …','Förderlinien (Bund · Land · EU) werden abgeglichen …','Konfidenz-Scoring der Treffer …','Ergebnisse werden zusammengestellt …'];
+function Analyzing({ proj }) {
+  const [step, setStep] = useState(0);
+  useEffect(() => { const id = setInterval(()=>setStep(s=>Math.min(s+1, STEPS.length-1)), 2600); return ()=>clearInterval(id); }, []);
+  return (
+    <main className="anim-fadein mx-auto flex min-h-[70vh] max-w-2xl flex-col items-center justify-center px-6 text-center">
+      <div className="relative flex h-28 w-28 items-center justify-center rounded-3xl bg-ink-900">
+        <div className="scan-line" /><div className="spin"><NomosMark size={56} color="var(--cream-100)" /></div>
+      </div>
+      <Eyebrow className="mt-8">NOMOS · ENGINE</Eyebrow>
+      <h2 className="mt-2 font-sans" style={{ fontSize:32, fontWeight:500, letterSpacing:'-0.03em' }}>Analysiere „{proj || 'dein Vorhaben'}“ …</h2>
+      <div className="mt-8 w-full max-w-md">
+        <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-cream-300"><div className="indet" /></div>
+        <div className="mt-6 flex flex-col gap-2.5 text-left">
+          {STEPS.map((s,i)=>(
+            <div key={i} className="flex items-center gap-3 transition-opacity" style={{ opacity:i<=step?1:0.3 }}>
+              <span className="brand-mono" style={{ fontSize:12, color:i<step?'var(--terracotta)':'var(--ink-500)' }}>{i<step?'✓':(i===step?<span className="dot-pulse">●</span>:'○')}</span>
+              <span className="brand-mono text-ink-700" style={{ fontSize:12 }}>{s}</span>
+            </div>))}
+        </div>
+        <p className="mt-6 text-sm text-ink-500">Echte KI-Analyse — das dauert je nach Plan einige Sekunden.</p>
+      </div>
+    </main>
+  );
+}
+
+/* ── Dashboard ──────────────────────────────────────────────────────────── */
+function Dashboard({ proj, pitch, file, analysis, onSelect }) {
+  const a = analysis || {};
+  const sourceText = pitch.trim() || a.einzeiler || '';
+  const [translated, setTranslated] = useState('');
+  const [translating, setTranslating] = useState(false);
+
+  async function translate() {
+    if (!sourceText) return;
+    setTranslating(true); setTranslated('');
+    try {
+      const res = await fetch('/api/translate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text: sourceText }) });
+      await readStream(res, (chunk)=>setTranslated(t=>t+chunk));
+    } catch (e) { setTranslated('[Fehler: '+e.message+']'); }
+    setTranslating(false);
+  }
+
+  return (
+    <main className="anim-fadein mx-auto max-w-5xl px-6 pb-24 pt-8 md:px-12">
+      {/* header */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <span className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.14em' }}>NOMOS-ANALYSE{file?` · ${file.name}`:''}</span>
+          <h2 className="mt-1 font-sans" style={{ fontSize:30, fontWeight:500, letterSpacing:'-0.03em' }}>{a.projektname || proj || 'Dein Vorhaben'}</h2>
+          {a.einzeiler && <p className="mt-2 max-w-2xl text-ink-700">{a.einzeiler}</p>}
+        </div>
+        <span className="brand-mono flex items-center gap-1.5 text-terracotta" style={{ fontSize:10 }}><span className="dot-pulse">●</span> {(a.matches||[]).length} TREFFER</span>
+      </div>
+
+      {/* meta + staerken/luecken */}
+      <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <MetaCard label="BRANCHE" value={a.branche} />
+        <MetaCard label="PHASE" value={a.phase} />
+        <MetaCard label="REGION" value={a.region} />
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <ListCard title="FÖRDERRELEVANTE STÄRKEN" items={a.staerken} color="var(--cobalt)" />
+        <ListCard title="MÖGLICHE LÜCKEN" items={a.luecken} color="var(--terracotta)" />
+      </div>
+
+      {/* matches */}
+      <div className="mt-6">
+        <Eyebrow className="mb-3">SCHRITT 2 · HYPERLOKALES MATCHING</Eyebrow>
+        {(a.matches||[]).length===0
+          ? <div className="rounded-2xl border border-cream-300 bg-cream-50 p-5 text-sm text-ink-700">Keine ausreichend passenden Förderlinien gefunden. Ergänze deinen Plan um Region, Phase und Technologiefeld und versuche es erneut.</div>
+          : <div className="flex flex-col gap-2.5">{a.matches.map((g,i)=><MatchRow key={g.id} g={g} delay={i*60} onSelect={()=>onSelect(g)} />)}</div>}
+      </div>
+
+      {/* translation */}
+      <div className="mt-8">
+        <div className="mb-3 flex items-center justify-between">
+          <Eyebrow>SCHRITT 3 · NOMOS-ÜBERSETZUNG</Eyebrow>
+          <button onClick={translate} disabled={!sourceText||translating}
+            className="rounded-full border border-cream-400 px-4 py-2 text-xs text-ink-900 transition-colors enabled:hover:border-ink-900 disabled:opacity-40">
+            {translating ? 'übersetzt …' : 'In Behördendeutsch übersetzen'}
+          </button>
+        </div>
+        <div className="grid items-stretch gap-3 md:grid-cols-[1fr_48px_1fr]">
+          <Panel label="ORIGINAL"><span className="text-sm leading-relaxed text-ink-900">{sourceText || '—'}</span></Panel>
+          <div className="flex items-center justify-center"><ArcMark size={32} color="var(--terracotta)" /></div>
+          <Panel label="NOMOS · BEHÖRDEN-FASSUNG" dark>
+            <span className="text-sm leading-relaxed">{translated || <span className="text-cream-300">Klicke „übersetzen“, um die formelle Fassung zu erzeugen.</span>}</span>
+          </Panel>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+const MetaCard = ({ label, value }) => (
+  <div className="rounded-2xl border border-cream-300 bg-cream-50 p-4">
+    <div className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.14em' }}>{label}</div>
+    <div className="mt-1 text-sm font-medium text-ink-900">{value || '—'}</div>
+  </div>);
+
+const ListCard = ({ title, items, color }) => (
+  <div className="rounded-2xl border border-cream-300 bg-cream-50 p-4">
+    <div className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.14em' }}>{title}</div>
+    <ul className="mt-2 flex flex-col gap-1.5">
+      {(items&&items.length?items:['—']).map((it,i)=>(
+        <li key={i} className="flex gap-2.5 text-sm leading-relaxed text-ink-700">
+          <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full" style={{ background:color }} /><span>{it}</span></li>))}
+    </ul></div>);
+
+function MatchRow({ g, delay, onSelect }) {
+  return (
+    <div className="anim-fadeup rounded-xl border border-cream-200 bg-cream-50 p-4 transition-shadow hover:shadow-[0_8px_24px_-12px_rgba(40,30,20,0.25)]" style={{ animationDelay:`${delay}ms` }}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-ink-900">{g.name}</div>
+          <div className="brand-mono mt-0.5 text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>{g.provider} · {g.region} · {g.amount}</div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div className="h-1 w-20 rounded-full bg-cream-300"><div className="h-full rounded-full" style={{ width:`${g.fit}%`, background:'var(--terracotta)' }} /></div>
+            <span className="brand-mono text-ink-700" style={{ fontSize:11 }}>{g.fit}%</span>
+          </div>
+          <button onClick={onSelect} className="rounded-full bg-ink-900 px-3.5 py-2 text-xs font-medium text-cream-100 transition-transform hover:scale-[1.04]">Antrag →</button>
+        </div>
+      </div>
+      <p className="mt-2 text-sm leading-relaxed text-ink-700">{g.begruendung}</p>
+    </div>);
+}
+
+function Panel({ label, dark, children }) {
+  return (
+    <div className={"rounded-2xl p-4 "+(dark?"bg-ink-900 text-cream-100":"border border-cream-300 bg-cream-50 text-ink-900")}>
+      <div className="brand-mono mb-2" style={{ fontSize:10, letterSpacing:'0.14em', color:dark?'rgba(245,240,230,0.55)':'var(--ink-500)' }}>{label}</div>
+      {children}
+    </div>);
+}
+
+/* ── Antrag (streaming) ─────────────────────────────────────────────────── */
+function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
+  const [text, setText] = useState('');
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState('');
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (startedRef.current) return; startedRef.current = true;
+    (async () => {
+      try {
+        const fd = new FormData();
+        fd.append('grantId', grant.id);
+        fd.append('projektname', proj || '');
+        if (pitch.trim()) fd.append('pitch', pitch.trim());
+        if (file) fd.append('document', file);
+        const res = await fetch('/api/generate', { method:'POST', body: fd });
+        if (!res.ok && res.headers.get('content-type')?.includes('application/json')) {
+          const e = await res.json().catch(()=>({})); throw new Error(e.error || `Fehler ${res.status}`);
+        }
+        await readStream(res, (chunk)=>setText(t=>t+chunk));
+        setDone(true);
+      } catch (e) { setError(e.message); setDone(true); }
+    })();
+  }, []);
+
+  const html = useMemo(() => {
+    const raw = marked.parse(text || '', { breaks:true });
+    return DOMPurify.sanitize(raw);
+  }, [text]);
+
+  function copy(){ navigator.clipboard?.writeText(text); }
+
+  return (
+    <main className="anim-fadein mx-auto max-w-4xl px-6 pb-24 pt-8 md:px-12">
+      <div className="no-print mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cream-300 bg-cream-50 px-5 py-4">
+        <div className="flex items-center gap-3">
+          <NomosMark size={22} color="var(--ink-900)" />
+          <div>
+            <div className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.14em' }}>ANTRAGSENTWURF · NOMOS</div>
+            <div className="text-sm font-medium">{grant.name}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={onBack} className="rounded-full border border-cream-400 px-4 py-2 text-sm text-ink-900 transition-colors hover:border-ink-900">← Förderlinien</button>
+          <button onClick={copy} disabled={!done} className="rounded-full border border-cream-400 px-4 py-2 text-sm text-ink-900 transition-colors enabled:hover:border-ink-900 disabled:opacity-40">Kopieren</button>
+          <button onClick={()=>window.print()} disabled={!done} className="rounded-full bg-ink-900 px-4 py-2 text-sm font-medium text-cream-100 transition-all enabled:hover:scale-[1.03] disabled:opacity-30">Als PDF exportieren</button>
+        </div>
+      </div>
+
+      <div className="no-print mb-8 rounded-2xl bg-ink-900 p-5 text-cream-100">
+        <div className="flex items-center justify-between">
+          <span className="brand-mono" style={{ fontSize:11, letterSpacing:'0.14em', color:'rgba(245,240,230,0.65)' }}>{done?'FERTIG · ENTWURF (≈80 %)':'NOMOS GENERIERT …'}</span>
+          {!done && <span className="spin"><NomosMark size={16} color="var(--honey)" /></span>}
+        </div>
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+          {done ? <div className="h-full rounded-full bg-honey" style={{ width:'80%' }} /> : <div className="relative h-full w-full"><div className="indet" /></div>}
+        </div>
+        {done && !error && <p className="anim-fadein mt-3 text-sm leading-relaxed text-cream-300">Die verbleibenden ~20 % (persönliche Angaben, rechtsverbindliche Erklärungen, Unterschriften, Anlagen) ergänzt du selbst. Mit „[BITTE ERGÄNZEN]“ markierte Stellen brauchen deinen Input.</p>}
+        {error && <p className="mt-3 text-sm text-honey">Fehler: {error}</p>}
+      </div>
+
+      <article className="rounded-3xl border border-cream-300 bg-cream-50 p-8 md:p-12">
+        {text ? <div className="md" dangerouslySetInnerHTML={{ __html: html }} />
+              : <div className="flex items-center gap-3 text-ink-500"><span className="spin"><NomosMark size={18} color="var(--ink-500)" /></span><span className="brand-mono" style={{ fontSize:12 }}>Nomos formuliert …</span></div>}
+        {done && !error && (
+          <footer className="anim-fadein mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-cream-300 pt-6">
+            <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.14em' }}>ERSTELLT MIT NOMOS · POWERED BY TELOS</span>
+            <button onClick={onReset} className="brand-mono text-terracotta hover:underline" style={{ fontSize:11, letterSpacing:'0.1em' }}>↺ NEUES VORHABEN</button>
+          </footer>)}
+      </article>
+    </main>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="no-print border-t border-cream-300 px-6 py-8 md:px-12">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3"><TelosLockup size={20} />
+          <span className="brand-serif italic text-ink-700" style={{ fontSize:16 }}>From Vision to Grant. Seamlessly.</span></div>
+        <span className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>powered by Nomos · Berlin · Wien · Zürich</span>
+      </div>
+    </footer>);
+}
+
+/* ── streaming helper ──────────────────────────────────────────────────── */
+async function readStream(res, onChunk) {
+  if (!res.body) { onChunk(await res.text()); return; }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    onChunk(dec.decode(value, { stream:true }));
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

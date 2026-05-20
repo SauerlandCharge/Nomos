@@ -1,0 +1,21 @@
+{
+  "name": "telos-nomos",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Telos · Nomos — übersetzt Businesspläne in Behördendeutsch, findet Fördermittel und generiert 80% des Förderantrags.",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.69.0",
+    "dotenv": "^17.0.0",
+    "express": "^5.0.0",
+    "mammoth": "^1.8.0",
+    "multer": "^2.0.0"
+  }
+}
