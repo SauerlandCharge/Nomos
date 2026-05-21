@@ -23,7 +23,7 @@ const MODELS = {
 const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-21.2";
+const VERSION = "2026-05-21.3";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).

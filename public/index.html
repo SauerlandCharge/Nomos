@@ -492,27 +492,114 @@ function PageEngine({ startPitch }) {
 }
 
 /* Förderlinien */
+// Detailansicht einer Förderung — mit Live-Auflösung der konkreten Programm-/Formular-URL.
+function GrantDetail({ grant, onClose, startPitch }) {
+  const [res, setRes] = useState(null);   // {url, formUrl, hinweis}
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  if (!grant) return null;
+  async function resolve() {
+    setBusy(true); setErr(''); setRes(null);
+    try {
+      const r = await fetch('/api/resolve', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: grant.name, provider: grant.provider, region: grant.region }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || ('Fehler '+r.status));
+      setRes(d);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+  const Link = ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="brand-mono text-cobalt hover:underline" style={{ fontSize:11, letterSpacing:'0.06em' }}>{children} ↗</a>;
+  return (
+    <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4" onClick={onClose}>
+      <div className="anim-fadeup max-h-[88vh] w-full max-w-xl overflow-auto rounded-3xl border border-cream-300 bg-cream-50 p-7" onClick={(e)=>e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>{grant.region} · {grant.provider}</div>
+            <h2 className="mt-1 font-sans" style={{ fontSize:22, fontWeight:500, letterSpacing:'-0.02em' }}>{grant.name}</h2>
+          </div>
+          <button onClick={onClose} className="flex h-8 w-8 flex-none items-center justify-center rounded-full border border-cream-400 text-ink-700 hover:border-ink-900">✕</button>
+        </div>
+        {grant.summary && <p className="mt-3 text-sm leading-relaxed text-ink-700">{grant.summary}</p>}
+        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1">
+          <div><div className="brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.12em' }}>FÖRDERHÖHE</div><div className="text-sm text-ink-900">{grant.amount}</div></div>
+          <div><div className="brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.12em' }}>QUOTE</div><div className="text-sm text-ink-900">{grant.fundingRate}</div></div>
+        </div>
+        {(grant.requirements||[]).length>0 && (
+          <div className="mt-4">
+            <div className="brand-mono uppercase text-ink-500" style={{ fontSize:9, letterSpacing:'0.12em' }}>HARTE ANFORDERUNGEN</div>
+            <ul className="mt-1.5 flex flex-col gap-1">{grant.requirements.map((r,i)=>(
+              <li key={i} className="flex gap-2 text-sm leading-relaxed text-ink-700"><span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-terracotta" /><span>{r}</span></li>))}</ul>
+          </div>)}
+        <div className="mt-4 flex flex-wrap gap-1.5">{(grant.focus||[]).slice(0,6).map(f=><Chip key={f}>{f}</Chip>)}</div>
+
+        <div className="mt-5 rounded-2xl border border-cream-300 bg-cream-100 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>Konkrete Quelle</span>
+            <button onClick={resolve} disabled={busy} className="inline-flex items-center gap-2 rounded-full border border-cobalt px-3.5 py-1.5 text-xs text-ink-900 transition-colors enabled:hover:bg-cobalt enabled:hover:text-cream-50 disabled:opacity-40">
+              {busy ? <><span className="spin"><NomosMark size={12} color="var(--cobalt)" /></span> sucht …</> : 'Konkrete Seite + Formular finden'}
+            </button>
+          </div>
+          {err && <p className="mt-2 text-sm text-ink-700">{err}</p>}
+          {res && (
+            <div className="mt-2 flex flex-col gap-1">
+              {res.hinweis && <p className="text-sm leading-relaxed text-ink-700">{res.hinweis}</p>}
+              {res.url ? <Link href={res.url}>Zur konkreten Förderseite</Link> : <span className="text-sm text-ink-500">Keine konkrete URL gefunden.</span>}
+              {res.formUrl && <Link href={res.formUrl}>Antragsformular / Merkblatt</Link>}
+            </div>)}
+          {!res && !busy && grant.url && <div className="mt-2"><Link href={grant.url}>Programm-Übersicht (Quelle prüfen)</Link></div>}
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          <button onClick={()=>{ onClose(); startPitch(); }} className="rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Mit Pitch starten →</button>
+          <span className="brand-mono self-center text-ink-500" style={{ fontSize:10 }}>Lade deinen Plan hoch, um den Antrag zu erstellen.</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PageFoerderlinien({ startPitch }) {
   const [grants, setGrants] = useState([]);
   const [filter, setFilter] = useState('alle');
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState('name');
+  const [detail, setDetail] = useState(null);
   useEffect(() => { fetch('/api/grants').then(r=>r.json()).then(setGrants).catch(()=>{}); }, []);
   const levels = [['alle','Alle'],['national','Bund'],['land','Länder'],['eu','EU']];
-  const shown = grants.filter(g => filter==='alle' || g.level===filter);
+  const ql = q.trim().toLowerCase();
+  const shown = grants
+    .filter(g => filter==='alle' || g.level===filter)
+    .filter(g => !ql || [g.name, g.provider, g.summary, g.eligibility, (g.focus||[]).join(' ')].join(' ').toLowerCase().includes(ql))
+    .sort((a,b)=> sort==='region' ? String(a.region).localeCompare(String(b.region)) : String(a.name).localeCompare(String(b.name)));
   return (
     <PageShell>
       <PageHero eyebrow="FÖRDERLINIEN"
         title={<>{grants.length || ''} kuratierte Töpfe.<br/><em className="brand-serif italic" style={{ fontWeight:400 }}>Bund, Länder, EU.</em></>}
-        lede="Diese Programme kennt Nomos sofort. Per Live-Websuche ergänzt die Engine zusätzlich aktuelle Programme direkt aus dem Web." />
+        lede="Diese Programme kennt Nomos sofort. Klick auf eine Förderung öffnet Details samt konkreter Quelle; per Live-Websuche kommen aktuelle Programme dazu." />
 
-      <div className="mt-8 flex flex-wrap gap-2">
-        {levels.map(([k,l])=>(
-          <button key={k} onClick={()=>setFilter(k)}
-            className={"rounded-full px-4 py-2 text-xs transition-colors "+(filter===k ? 'bg-ink-900 text-cream-100' : 'border border-cream-400 text-ink-700 hover:border-ink-900')}>{l}</button>))}
+      {/* Schnellsuche + Filter + Sortierung */}
+      <div className="mt-8 flex flex-col gap-3">
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Schnellsuche — z. B. Klima, KI, Bayern, Gründung …"
+          className="w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 text-sm outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {levels.map(([k,l])=>(
+              <button key={k} onClick={()=>setFilter(k)}
+                className={"rounded-full px-4 py-2 text-xs transition-colors "+(filter===k ? 'bg-ink-900 text-cream-100' : 'border border-cream-400 text-ink-700 hover:border-ink-900')}>{l}</button>))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>SORTIERUNG</span>
+            <select value={sort} onChange={e=>setSort(e.target.value)} className="rounded-full border border-cream-400 bg-cream-50 px-3 py-1.5 text-xs text-ink-900 outline-none">
+              <option value="name">Name (A–Z)</option>
+              <option value="region">Region</option>
+            </select>
+          </div>
+        </div>
+        <div className="brand-mono text-ink-500" style={{ fontSize:10 }}>{shown.length} von {grants.length} angezeigt</div>
       </div>
 
-      <div className="mt-6 grid gap-3 md:grid-cols-2">
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
         {shown.map(g=>(
-          <div key={g.id} className="relative rounded-3xl border border-cream-300 bg-cream-50 p-6">
+          <button key={g.id} onClick={()=>setDetail(g)} className="relative rounded-3xl border border-cream-300 bg-cream-50 p-6 text-left transition-all hover:-translate-y-0.5 hover:border-ink-900 hover:shadow-[0_14px_36px_-18px_rgba(40,30,20,0.35)]">
             <div className="pointer-events-none absolute right-5 top-5 opacity-20"><NomosMark size={18} color="var(--ink-900)" /></div>
             <div className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>{g.region}</div>
             <div className="mt-1 pr-6 text-base font-medium text-ink-900">{g.name}</div>
@@ -521,13 +608,15 @@ function PageFoerderlinien({ startPitch }) {
               <div><div className="brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.12em' }}>FÖRDERHÖHE</div><div className="text-sm text-ink-900">{g.amount}</div></div>
               <div><div className="brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.12em' }}>QUOTE</div><div className="text-sm text-ink-900">{g.fundingRate}</div></div>
             </div>
-            <p className="mt-3 text-sm leading-relaxed text-ink-700">{g.eligibility}</p>
-            <div className="mt-4 flex flex-wrap gap-1.5">{(g.focus||[]).slice(0,5).map(f=><Chip key={f}>{f}</Chip>)}</div>
-          </div>))}
+            <p className="mt-3 text-sm leading-relaxed text-ink-700">{g.summary || g.eligibility}</p>
+            <div className="mt-4 flex flex-wrap items-center gap-1.5">{(g.focus||[]).slice(0,5).map(f=><Chip key={f}>{f}</Chip>)}<span className="brand-mono ml-auto text-cobalt" style={{ fontSize:10 }}>Details ↗</span></div>
+          </button>))}
+        {shown.length===0 && <div className="rounded-2xl border border-cream-300 bg-cream-50 p-5 text-sm text-ink-700 md:col-span-2">Keine Treffer — Suche anpassen oder Filter zurücksetzen.</div>}
       </div>
-      <p className="mt-5 brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>● BETRÄGE & QUOTEN SIND RICHTWERTE — VOR ANTRAGSTELLUNG ÜBER FOERDERDATENBANK.DE PRÜFEN</p>
+      <p className="mt-5 brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>● BETRÄGE & QUOTEN SIND RICHTWERTE — VOR ANTRAGSTELLUNG ÜBER OFFIZIELLE QUELLEN PRÜFEN</p>
 
       <CTAband startPitch={startPitch} />
+      {detail && <GrantDetail grant={detail} onClose={()=>setDetail(null)} startPitch={startPitch} />}
     </PageShell>
   );
 }
