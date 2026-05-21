@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { GRANTS, getGrantById } from "./grants.js";
-import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, COMPLIANCE_SCHEMA, complianceSystem, antragSystem } from "./prompts.js";
+import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, RESOLVE_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, COMPLIANCE_SCHEMA, complianceSystem, antragSystem } from "./prompts.js";
 import { buildDocx } from "./export.js";
 import { repo, dbKind } from "./db.js";
 import { hashPassword, verifyPassword, setSession, clearSession, attachUser, requireAuth, validEmail, publicUser } from "./auth.js";
@@ -23,7 +23,7 @@ const MODELS = {
 const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-21.1";
+const VERSION = "2026-05-21.2";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -254,6 +254,44 @@ app.post("/api/livesearch", async (req, res) => {
     sendError(res, err);
   }
 });
+
+// ── /api/resolve (konkrete Programm-URL + Formular per Web-Suche) ─────────────
+app.post("/api/resolve", async (req, res) => {
+  try {
+    const { name, provider, region } = req.body || {};
+    if (!name) return res.status(400).json({ error: "Kein Programmname." });
+    const query = `Programm: ${name}${provider ? " · " + provider : ""}${region ? " · " + region : ""}\nFinde die konkrete offizielle Programmseite und ggf. das Antragsformular.`;
+    let messages = [{ role: "user", content: query }];
+    let final = null;
+    const c = client();
+    for (let i = 0; i < 5; i++) {
+      const resp = await c.messages.create({
+        model: MODELS.deep,
+        max_tokens: 3000,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "low" },
+        system: [{ type: "text", text: RESOLVE_SYSTEM, cache_control: { type: "ephemeral" } }],
+        tools: [{ type: "web_search_20260209", name: "web_search" }],
+        messages,
+      });
+      if (resp.stop_reason === "pause_turn") { messages = [{ role: "user", content: query }, { role: "assistant", content: resp.content }]; continue; }
+      final = resp; break;
+    }
+    if (!final) throw new Error("Auflösung nicht abgeschlossen.");
+    const txt = final.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+    const obj = extractJson(txt) || {};
+    const httpOk = (u) => typeof u === "string" && /^https?:\/\//.test(u) ? u : null;
+    res.json({ url: httpOk(obj.url), formUrl: httpOk(obj.formUrl), hinweis: String(obj.hinweis || "").slice(0, 300) });
+  } catch (err) { sendError(res, err); }
+});
+
+function extractJson(text) {
+  const fenced = text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/);
+  let s = fenced ? fenced[1] : null;
+  if (!s) { const a = text.indexOf("{"), b = text.lastIndexOf("}"); if (a !== -1 && b > a) s = text.slice(a, b + 1); }
+  if (!s) return null;
+  try { return JSON.parse(s.trim()); } catch { return null; }
+}
 
 // Defensives Parsen der Analyse: bei abgeschnittenem/unvollständigem JSON wird
 // versucht, möglichst viel zu retten, statt komplett zu scheitern.

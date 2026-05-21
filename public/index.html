@@ -1118,6 +1118,18 @@ function Dashboard({ proj, pitch, file, analysis, onUpdate, onSelect }) {
     } catch (e) { setLiveErr(e.message); }
     setSearching(false);
   }
+  // Web-Suche läuft automatisch mit (primäre Matching-Quelle, nicht nur die kuratierten Töpfe).
+  const startedLive = useRef(false);
+  useEffect(() => { if (startedLive.current) return; startedLive.current = true; liveSearch(); }, []);
+  // Kuratierte Treffer + Web-Treffer zu einer Top-Liste mergen (dedupliziert, sortiert).
+  const combined = useMemo(() => {
+    const seen = new Set(); const out = [];
+    for (const g of [...(a.matches || []), ...live]) {
+      const k = (g.name || '').toLowerCase().trim();
+      if (!k || seen.has(k)) continue; seen.add(k); out.push(g);
+    }
+    return out.sort((x, y) => (y.fit || 0) - (x.fit || 0)).slice(0, 8);
+  }, [a.matches, live]);
 
   async function translate() {
     if (!sourceText) return;
@@ -1153,33 +1165,27 @@ function Dashboard({ proj, pitch, file, analysis, onUpdate, onSelect }) {
         <ListCard title="MÖGLICHE LÜCKEN" items={a.luecken} color="var(--terracotta)" />
       </div>
 
-      {/* matches */}
+      {/* matches (kuratiert + Web-Suche kombiniert) */}
       <div className="mt-6">
-        <Eyebrow className="mb-3">SCHRITT 2 · HYPERLOKALES MATCHING</Eyebrow>
-        {(a.matches||[]).length===0
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <Eyebrow>SCHRITT 2 · TOP-FÖRDERUNGEN (KURATIERT + WEB)</Eyebrow>
+          <span className="brand-mono flex items-center gap-1.5 text-cobalt" style={{ fontSize:10, letterSpacing:'0.1em' }}>
+            {searching ? <><span className="spin"><NomosMark size={12} color="var(--cobalt)" /></span> WEB-SUCHE LÄUFT …</>
+              : <button onClick={liveSearch} className="hover:underline">↻ ERNEUT IM WEB SUCHEN</button>}
+          </span>
+        </div>
+        {combined.length===0 && !searching
           ? <div className="rounded-2xl border border-cream-300 bg-cream-50 p-5 text-sm text-ink-700">Keine ausreichend passenden Förderlinien gefunden. Ergänze deinen Plan um Region, Phase und Technologiefeld und versuche es erneut.</div>
-          : <div className="flex flex-col gap-2.5">{a.matches.map((g,i)=><MatchRow key={(g.id||'')+'-'+g.fit} g={g} delay={i*60} onSelect={()=>onSelect(g)} />)}</div>}
+          : <div className="flex flex-col gap-2.5">
+              {combined.map((g,i)=><MatchRow key={(g.id||g.name||'')+'-'+g.fit} g={g} delay={i*50} onSelect={()=>onSelect(g)} />)}
+              {searching && combined.length===0 && <SkeletonRows n={3} />}
+            </div>}
+        {liveErr && <p className="mt-2 brand-mono text-ink-500" style={{ fontSize:10 }}>Web-Suche nicht verfügbar ({liveErr}) — kuratierte Treffer werden angezeigt.</p>}
+        {live.length>0 && <p className="mt-2 brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>● LIVE-TREFFER (●) AUS DER WEB-SUCHE — QUELLEN VOR ANTRAGSTELLUNG PRÜFEN</p>}
       </div>
 
       {/* Rückfragen / Verfeinerung */}
       {(a.matches||[]).length>0 && <FollowupPanel analysis={analysis} onUpdate={onUpdate} />}
-
-      {/* live web search */}
-      <div className="mt-8">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <Eyebrow>SCHRITT 2b · LIVE-WEBSUCHE (AKTUELLE PROGRAMME)</Eyebrow>
-          <button onClick={liveSearch} disabled={searching}
-            className="inline-flex items-center gap-2 rounded-full border border-cobalt px-4 py-2 text-xs text-ink-900 transition-colors enabled:hover:bg-cobalt enabled:hover:text-cream-50 disabled:opacity-40">
-            {searching ? <><span className="spin"><NomosMark size={13} color="var(--cobalt)" /></span> sucht im Web …</> : 'Aktuelle Programme im Web finden'}
-          </button>
-        </div>
-        {liveErr && <div className="rounded-2xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-ink-900">{liveErr}</div>}
-        {searching && <div><p className="mb-2.5 text-sm text-ink-500">Nomos durchsucht offizielle Förderquellen — das dauert etwas länger als die Analyse.</p><SkeletonRows n={3} /></div>}
-        {!searching && liveDone && live.length===0 && !liveErr &&
-          <div className="rounded-2xl border border-cream-300 bg-cream-50 p-4 text-sm text-ink-700">Keine zusätzlichen passenden Programme über die Websuche gefunden.</div>}
-        {live.length>0 && <div className="flex flex-col gap-2.5">{live.map((g,i)=><MatchRow key={g.id} g={g} delay={i*60} onSelect={()=>onSelect(g)} />)}</div>}
-        {live.length>0 && <p className="mt-2 brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>● LIVE-TREFFER AUS DER WEBSUCHE — QUELLEN VOR ANTRAGSTELLUNG PRÜFEN</p>}
-      </div>
 
       {/* translation */}
       <div className="mt-8">
