@@ -2,12 +2,22 @@
 
 **Vom Pitch zum Bescheid. Reibungslos.**
 
-Nomos ist die KI-Engine von Telos: Sie liest echte Businesspläne / Pitch-Decks ein,
-findet passende öffentliche Fördermittel (Bund · Länder · EU) und generiert ~80 % des
-offiziellen Förderantrags in formellem Behördendeutsch.
+**Telos** baut Infrastruktur, die Gründer:innen die bürokratischen Hürden abnimmt — als
+Produktfamilie für jede Gründungsphase. **Nomos** ist das erste Produkt: aus Idee oder
+Businessplan findet es passende öffentliche Fördermittel (Bund · Länder · EU) und
+generiert ~80 % des offiziellen Förderantrags in formellem Behördendeutsch.
 
-Diese Version ist **kein Mockup mehr**, sondern ein lauffähiges Produkt mit echter
-KI-Anbindung (Anthropic Claude) über ein sicheres Node-Backend.
+Lauffähiges Produkt mit echter KI-Anbindung (Anthropic Claude) über ein sicheres Node-Backend.
+
+## Funktionen
+
+- **Businessplan-Generator** — aus einer Ideenbeschreibung einen Plan erzeugen und im Dialog verfeinern.
+- **Hyperlokales Matching** — kuratierte Förderdatenbank **+ automatische Web-Suche** zu einer Top-Liste kombiniert; Schnellsuche, Filter & Detailansicht mit konkreter Programm-/Formular-URL.
+- **KI-Rückfragen** — gezielte Nachfragen schließen Lücken und passen den Score live an.
+- **Behörden-Übersetzung** & **Antragsentwurf** (gestreamt, fortsetzungssicher), in der App **editierbar**, Export als **PDF / DOCX / Markdown**.
+- **Vorgaben-Check**, **Checkliste** zusätzlicher Unterlagen und **PDF-Formular-Auto-Fill** (AcroForm).
+- **Konten & Verlauf** — Login (E-Mail), Profil, gespeicherte Pitches/Anträge.
+- **Spracheingabe** an Textfeldern; konsistentes „Creamy Minimalism"-Branding.
 
 ---
 
@@ -15,23 +25,22 @@ KI-Anbindung (Anthropic Claude) über ein sicheres Node-Backend.
 
 ![Architektur von Nomos](architektur.svg)
 
+Browser (React UI, `public/index.html`) → **Node + Express** (`server/`, API-Key serverseitig) → **Claude**.
+Modelle gemischt: **deep = Sonnet 4.6** (Analyse/Antrag/Businessplan), **fast = Haiku 4.5** (Rückfragen/Compliance/Checklisten/Übersetzung). Endpunkte u. a.:
+
 ```
-Browser (React UI, public/index.html)
-        │  fetch  ───────────────────────────────────┐
-        ▼                                             │
-Node + Express (server/)         ANTHROPIC_API_KEY    │  Streaming
-  /api/analyze    → Claude (structured JSON: Vorhaben + Matching)
-  /api/livesearch → Claude + web_search (aktuelle reale Programme im Web)
-  /api/translate  → Claude (Gründer-Slang → Behördendeutsch, gestreamt)
-  /api/generate   → Claude (Antragsentwurf als Markdown, gestreamt)
-        │
-        ▼
-Claude Opus 4.7  (adaptive thinking, prompt caching)
+/api/analyze · /api/followup · /api/rescore        Matching + Rückfragen + Re-Scoring
+/api/livesearch · /api/resolve                     Web-Suche: Programme + konkrete URLs
+/api/businessplan · /api/businessplan/refine       Businessplan generieren/verfeinern
+/api/translate · /api/generate                     Übersetzung · Antragsentwurf (gestreamt)
+/api/compliance · /api/checklist · /api/export · /api/fillform   Prüfen · Checkliste · DOCX · PDF-Fill
+/api/auth/* · /api/me · /api/profile · /api/pitches · /api/antraege   Konten & Verlauf
+/healthz                                           Status (version, model, db)
 ```
 
 - Der **API-Key liegt ausschließlich serverseitig** (Umgebungsvariable) — niemals im Browser.
-- **PDF** wird von Claude nativ gelesen, **DOCX** wird mit `mammoth` zu Text extrahiert, **TXT** direkt verwendet.
-- Die Förderlinien-Datenbank (`server/grants.js`) ist kuratiert; Claude matcht und begründet.
+- **PDF** wird von Claude nativ gelesen, **DOCX** via `mammoth`, **TXT** direkt.
+- Förderdatenbank `server/grants.js` (kuratiert) + Live-Web-Suche; Speicher lokal (JSON) oder Postgres (`DATABASE_URL`).
 
 ---
 
@@ -79,11 +88,14 @@ npm run dev
 
 ### Konfiguration (`.env`)
 
-| Variable            | Default            | Bedeutung                                              |
-| ------------------- | ------------------ | ------------------------------------------------------ |
-| `ANTHROPIC_API_KEY` | —                  | **Pflicht.** Dein Anthropic-Key.                       |
-| `PORT`              | `3000`             | Server-Port.                                           |
-| `NOMOS_MODEL`       | `claude-opus-4-7`  | Modell. Günstiger/schneller: `claude-sonnet-4-6`.      |
+| Variable            | Default              | Bedeutung                                                        |
+| ------------------- | -------------------- | ---------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY` | —                    | **Pflicht.** Dein Anthropic-Key.                                 |
+| `PORT`              | `3000`               | Server-Port.                                                     |
+| `NOMOS_MODEL`       | `claude-sonnet-4-6`  | „deep"-Modell (Analyse/Antrag/Businessplan).                     |
+| `NOMOS_MODEL_FAST`  | `claude-haiku-4-5`   | „fast"-Modell (Rückfragen/Compliance/Checklisten/Übersetzung).   |
+| `SESSION_SECRET`    | (Dev-Fallback)       | Cookie-Signatur — in **Produktion zwingend** setzen.             |
+| `DATABASE_URL`      | — (lokal JSON-Datei) | Gesetzt → PostgreSQL; sonst `data/store.json`.                   |
 
 ---
 
