@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { GRANTS, getGrantById } from "./grants.js";
-import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, RESOLVE_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, COMPLIANCE_SCHEMA, complianceSystem, antragSystem } from "./prompts.js";
+import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, RESOLVE_SYSTEM, BUSINESSPLAN_SYSTEM, BUSINESSPLAN_REFINE_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, COMPLIANCE_SCHEMA, complianceSystem, antragSystem } from "./prompts.js";
 import { buildDocx } from "./export.js";
 import { repo, dbKind } from "./db.js";
 import { hashPassword, verifyPassword, setSession, clearSession, attachUser, requireAuth, validEmail, publicUser } from "./auth.js";
@@ -23,7 +23,7 @@ const MODELS = {
 const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-21.3";
+const VERSION = "2026-05-21.4";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -356,6 +356,33 @@ function extractPrograms(text) {
     return [];
   }
 }
+
+// ── /api/businessplan (Idee → grober Businessplan, gestreamt) ────────────────
+app.post("/api/businessplan", async (req, res) => {
+  const idea = (req.body?.idea || "").trim();
+  if (idea.length < 15) return res.status(400).json({ error: "Bitte beschreibe deine Idee etwas ausführlicher (min. 15 Zeichen)." });
+  try {
+    await streamText(res, {
+      system: [{ type: "text", text: BUSINESSPLAN_SYSTEM, cache_control: { type: "ephemeral" } }],
+      max_tokens: 16000, effort: "medium", model: MODELS.deep, continue: true,
+      messages: [{ role: "user", content: `Erstelle einen ersten Businessplan aus dieser Idee:\n\n${idea}` }],
+    });
+  } catch (err) { sendError(res, err); }
+});
+
+// ── /api/businessplan/refine (Plan + Zusatzinfo → überarbeiteter Plan) ───────
+app.post("/api/businessplan/refine", async (req, res) => {
+  const plan = (req.body?.plan || "").trim();
+  const message = (req.body?.message || "").trim();
+  if (!plan || !message) return res.status(400).json({ error: "Plan oder Ergänzung fehlt." });
+  try {
+    await streamText(res, {
+      system: [{ type: "text", text: BUSINESSPLAN_REFINE_SYSTEM, cache_control: { type: "ephemeral" } }],
+      max_tokens: 16000, effort: "medium", model: MODELS.deep, continue: true,
+      messages: [{ role: "user", content: `AKTUELLER BUSINESSPLAN:\n\n${plan}\n\n---\nERGÄNZUNG/WUNSCH DER GRÜNDER:INNEN:\n${message}` }],
+    });
+  } catch (err) { sendError(res, err); }
+});
 
 // ── /api/translate (Streaming) ───────────────────────────────────────────────
 app.post("/api/translate", async (req, res) => {

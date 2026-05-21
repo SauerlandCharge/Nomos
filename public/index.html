@@ -825,6 +825,80 @@ function Profil({ auth, onLogin }) {
   );
 }
 
+/* ── Businessplan-Generator ──────────────────────────────────────────────── */
+function PageBusinessplan({ onUseForMatching }) {
+  const [idea, setIdea] = useState('');
+  const [plan, setPlan] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [refineMsg, setRefineMsg] = useState('');
+  const [err, setErr] = useState('');
+  const ideaSpeech = useSpeech((t)=>setIdea(p=>(p.trim()? p.trim()+' ':'')+t));
+  const html = useMemo(()=>DOMPurify.sanitize(marked.parse(plan||'', { breaks:true })), [plan]);
+
+  async function stream(url, body, keepOnError) {
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (!res.ok && res.headers.get('content-type')?.includes('application/json')) { const e = await res.json().catch(()=>({})); throw new Error(e.error || ('Fehler '+res.status)); }
+      setPlan('');
+      await readStream(res, (c)=>setPlan(p=>p+c));
+    } catch (e) { setErr(e.message); if (keepOnError!=null) setPlan(keepOnError); }
+    setBusy(false);
+  }
+  function gen() { if (idea.trim().length>=15) stream('/api/businessplan', { idea: idea.trim() }); }
+  function refine() { const m = refineMsg.trim(); if (!m || !plan) return; const prev = plan; setRefineMsg(''); stream('/api/businessplan/refine', { plan: prev, message: m }, prev); }
+
+  return (
+    <PageShell>
+      <PageHero eyebrow="BUSINESSPLAN-GENERATOR"
+        title={<>Aus der Idee zum <em className="brand-serif italic" style={{ fontWeight:400 }}>Plan</em>.</>}
+        lede="Noch kein Businessplan? Nomos macht aus deiner Idee einen ersten Entwurf — den du im Dialog verfeinerst und direkt fürs Fördermatching nutzt." />
+
+      <div className="mt-8 rounded-3xl border border-cream-300 bg-cream-50 p-5">
+        <Eyebrow>DEINE IDEE</Eyebrow>
+        <div className="relative mt-3">
+          <textarea value={idea} onChange={e=>setIdea(e.target.value)} rows={4} disabled={busy}
+            placeholder="Beschreibe deine Idee in ein paar Sätzen — Problem, Lösung, für wen. (tippen oder diktieren)"
+            className="w-full resize-none rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 pr-12 text-sm leading-relaxed outline-none focus:border-ink-900 disabled:opacity-60" />
+          {ideaSpeech.supported && (
+            <button onClick={ideaSpeech.toggle} className={"absolute bottom-2.5 right-2.5 flex h-9 w-9 items-center justify-center rounded-full transition-colors "+(ideaSpeech.listening?'bg-terracotta text-cream-50':'border border-cream-400 text-ink-700 hover:border-ink-900')}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 19v3" /></svg>
+            </button>)}
+        </div>
+        {err && <div className="mt-3 rounded-xl border border-terracotta/40 bg-terracotta/10 px-4 py-2.5 text-sm text-ink-900">{err}</div>}
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span className="brand-mono text-ink-500" style={{ fontSize:10 }}>{idea.trim().length>=15 ? 'bereit' : 'min. 15 Zeichen'}</span>
+          <button onClick={gen} disabled={busy || idea.trim().length<15} className="rounded-full bg-ink-900 px-5 py-3 text-sm font-medium text-cream-100 transition-transform enabled:hover:scale-[1.03] disabled:opacity-40">{plan ? 'Neu generieren' : 'Businessplan erstellen →'}</button>
+        </div>
+      </div>
+
+      {busy && !plan && <div className="mt-6 flex items-center gap-3 text-ink-500"><span className="spin"><NomosMark size={18} color="var(--ink-500)" /></span><span className="brand-mono" style={{ fontSize:12 }}>Nomos schreibt deinen Businessplan …</span></div>}
+
+      {plan && (
+        <>
+          <article className="mt-6 rounded-3xl border border-cream-300 bg-cream-50 p-8 md:p-10"><div className="md" dangerouslySetInnerHTML={{ __html: html }} /></article>
+          <div className="mt-4 rounded-3xl border border-cream-300 bg-cream-100 p-5">
+            <Eyebrow>VERFEINERN (DIALOG)</Eyebrow>
+            <p className="mt-1 text-sm text-ink-700">Ergänze Infos oder äußere einen Wunsch — z. B. „Wir sind 2 Gründer mit Studium", „Markt ist B2B", „füge Umsatzprognose hinzu".</p>
+            <div className="mt-3 flex items-end gap-2">
+              <textarea value={refineMsg} onChange={e=>setRefineMsg(e.target.value)} rows={2} disabled={busy}
+                placeholder="Deine Ergänzung … (tippen oder diktieren)"
+                className="w-full resize-none rounded-xl border border-cream-300 bg-cream-50 px-4 py-2.5 text-sm outline-none focus:border-ink-900 disabled:opacity-60" />
+              <MicButton onText={(t)=>setRefineMsg(p=>(p.trim()? p.trim()+' ':'')+t)} />
+              <button onClick={refine} disabled={busy || !refineMsg.trim()} className="flex-none rounded-full bg-ink-900 px-4 py-2.5 text-sm font-medium text-cream-100 transition-transform enabled:hover:scale-[1.03] disabled:opacity-40">{busy ? '…' : 'Verbessern'}</button>
+            </div>
+          </div>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <button onClick={()=>onUseForMatching(plan)} disabled={busy} className="rounded-full bg-terracotta px-6 py-3 text-sm font-medium text-cream-50 transition-transform enabled:hover:scale-[1.03] disabled:opacity-40">Mit diesem Plan Förderungen finden →</button>
+            <span className="brand-mono text-ink-500" style={{ fontSize:10 }}>Der Plan wird direkt analysiert; eingeloggt landet er in deinem Verlauf.</span>
+          </div>
+        </>)}
+
+      <p className="mt-6 brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>● ERSTER ENTWURF — „[BITTE ERGÄNZEN]"-STELLEN SELBST PRÜFEN/FÜLLEN</p>
+    </PageShell>
+  );
+}
+
 /* ── App shell ───────────────────────────────────────────────────────────── */
 function App() {
   const [view, setView] = useState('landing');
@@ -838,14 +912,15 @@ function App() {
   const auth = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
 
-  async function analyze() {
+  async function analyze(overrideText) {
+    const text = (overrideText != null ? overrideText : pitch).trim();
     setError(''); setPitchId(null);
-    setView('analyze');
+    setPage('home'); setView('analyze');
     try {
       const fd = new FormData();
       if (proj.trim()) fd.append('projektname', proj.trim());
-      if (pitch.trim()) fd.append('pitch', pitch.trim());
-      if (file) fd.append('document', file);
+      if (text) fd.append('pitch', text);
+      if (file && overrideText == null) fd.append('document', file);
       const res = await fetch('/api/analyze', { method:'POST', body: fd });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || `Fehler ${res.status}`); }
       const data = await res.json();
@@ -856,7 +931,7 @@ function App() {
       // Eingeloggt → automatisch im Verlauf speichern.
       if (auth.user) {
         try {
-          const r = await fetch('/api/pitches', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ projektname: pname, pitch_text: pitch.trim(), analysis: data }) });
+          const r = await fetch('/api/pitches', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ projektname: pname, pitch_text: text, analysis: data }) });
           const d = await r.json(); if (r.ok) setPitchId(d.id);
         } catch {}
       }
@@ -865,6 +940,7 @@ function App() {
       setView('landing');
     }
   }
+  function useIdeaPlan(planText) { setProj(''); setFile(null); setPitch(planText); analyze(planText); }
 
   async function openPitch(id) {
     try {
@@ -890,10 +966,11 @@ function App() {
       <Nav page={page} go={go} onLogo={()=>{setPage('home');setView('landing');}} startPitch={startPitch} auth={auth} onLogin={requireLogin} />
       {page==='verlauf' ? <Verlauf auth={auth} onLogin={requireLogin} openPitch={openPitch} />
         : page==='profil' ? <Profil auth={auth} onLogin={requireLogin} />
+        : page==='businessplan' ? <PageBusinessplan onUseForMatching={useIdeaPlan} />
         : page !== 'home'
         ? <Marketing page={page} go={go} startPitch={startPitch} />
         : <>
-            {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} />}
+            {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} onIdea={()=>go('businessplan')} />}
             {view==='analyze'   && <Analyzing proj={proj} />}
             {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis}} onUpdate={setAnalysis} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
             {view==='antrag'    && <Antrag {...{proj,pitch,file,grant:selected,pitchId,loggedIn:!!auth.user}} onBack={()=>setView('dashboard')} onReset={reset} />}
@@ -959,7 +1036,7 @@ function Nav({ page, go, onLogo, startPitch, auth, onLogin }) {
 }
 
 /* ── Landing ─────────────────────────────────────────────────────────────── */
-function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnalyze }) {
+function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnalyze, onIdea }) {
   const [drag, setDrag] = useState(false);
   const inputRef = useRef(null);
   const model = useModel();
@@ -1028,10 +1105,14 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
 
             <div className="mt-4 flex items-center justify-between gap-3">
               <span className="brand-mono text-ink-500" style={{ fontSize:10 }}>{canGo ? 'bereit' : 'Text (min. 25 Z.) oder Datei'}</span>
-              <button onClick={onAnalyze} disabled={!canGo}
+              <button onClick={()=>onAnalyze()} disabled={!canGo}
                 className="rounded-full bg-ink-900 px-5 py-3 text-sm font-medium text-cream-100 transition-all enabled:hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-30">
                 Mit Nomos analysieren →
               </button>
+            </div>
+            <div className="mt-3 border-t border-cream-300 pt-3 text-center">
+              <span className="text-sm text-ink-700">Noch keinen Businessplan? </span>
+              <button onClick={onIdea} className="text-sm font-medium text-terracotta hover:underline">Aus deiner Idee einen erstellen →</button>
             </div>
           </div>
 
