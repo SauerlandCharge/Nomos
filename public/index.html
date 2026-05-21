@@ -1604,6 +1604,36 @@ function Antrag({ proj, pitch, file, grant, pitchId, loggedIn, onBack, onReset }
     setCompBusy(false);
   }
   const compColor = (s) => /erf[üu]llt/i.test(s) ? 'var(--cobalt)' : /teil/i.test(s) ? 'var(--honey)' : 'var(--terracotta)';
+  const [chk, setChk] = useState(null);
+  const [chkBusy, setChkBusy] = useState(false);
+  const [chkErr, setChkErr] = useState('');
+  async function loadChecklist(){
+    setChkBusy(true); setChkErr(''); setChk(null);
+    try {
+      const body = grant.live ? { grant: JSON.stringify(grant), plan: text } : { grantId: grant.id, plan: text };
+      const res = await fetch('/api/checklist', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const d = await res.json(); if (!res.ok) throw new Error(d.error || ('Fehler '+res.status));
+      setChk(d);
+    } catch (e) { setChkErr(e.message); }
+    setChkBusy(false);
+  }
+  const formInputRef = useRef(null);
+  const [formBusy, setFormBusy] = useState(false);
+  const [formMsg, setFormMsg] = useState('');
+  async function fillForm(file){
+    if (!file) return;
+    setFormBusy(true); setFormMsg('');
+    try {
+      const fd = new FormData();
+      fd.append('form', file); fd.append('content', text); fd.append('projektname', proj || grant.name);
+      const res = await fetch('/api/fillform', { method:'POST', body: fd });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || ('Fehler '+res.status)); }
+      const n = res.headers.get('X-Fields-Filled');
+      triggerDownload(await res.blob(), (proj || 'Antrag').replace(/[^\w]+/g,'_') + '_ausgefuellt.pdf');
+      setFormMsg('✓ Formular befüllt'+(n?` (${n} Felder)`:'')+' — heruntergeladen. Bitte prüfen & offene Felder ergänzen.');
+    } catch (e) { setFormMsg('Fehler: '+e.message); }
+    setFormBusy(false);
+  }
 
   return (
     <main className="anim-fadein mx-auto max-w-4xl px-6 pb-24 pt-8 md:px-12">
@@ -1667,6 +1697,45 @@ function Antrag({ proj, pitch, file, grant, pitchId, loggedIn, onBack, onReset }
                   </div>))}
               </div>
             </div>)}
+        </div>)}
+
+      {/* Checkliste: zusätzlich nötige Unterlagen */}
+      {done && !error && (
+        <div className="no-print mb-6">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <Eyebrow>CHECKLISTE · ZUSÄTZLICH EINREICHEN</Eyebrow>
+            <button onClick={loadChecklist} disabled={chkBusy} className="inline-flex items-center gap-2 rounded-full border border-honey px-4 py-2 text-xs text-ink-900 transition-colors enabled:hover:bg-honey disabled:opacity-40">
+              {chkBusy ? <><span className="spin"><NomosMark size={13} color="var(--honey)" /></span> erstellt …</> : 'Checkliste erstellen'}
+            </button>
+          </div>
+          {chkErr && <div className="rounded-2xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-ink-900">{chkErr}</div>}
+          {chk && (
+            <div className="anim-fadein rounded-3xl border border-cream-300 bg-cream-50 p-5">
+              {chk.gesamt && <p className="mb-3 text-sm font-medium text-ink-900">{chk.gesamt}</p>}
+              <div className="flex flex-col gap-2.5">
+                {(chk.items||[]).map((it,i)=>(
+                  <div key={i} className="flex items-start gap-3">
+                    <span className="brand-mono mt-0.5 flex-none rounded-full px-2 py-0.5 text-cream-50" style={{ fontSize:9, letterSpacing:'0.08em', background: it.pflicht ? 'var(--terracotta)' : 'var(--cobalt)' }}>{it.pflicht ? 'PFLICHT' : 'OPTIONAL'}</span>
+                    <div><div className="text-sm font-medium text-ink-900">{it.dokument}</div><div className="mt-0.5 text-sm leading-relaxed text-ink-700">{it.hinweis}</div></div>
+                  </div>))}
+              </div>
+              <p className="mt-3 brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.1em' }}>● TYPISCHE ANGABEN — VERBINDLICH BEI DER BEWILLIGUNGSSTELLE PRÜFEN. WEITERE TELOS-PRODUKTE (ELENCHOS · METRON · AGORA · HERMES) UNTERSTÜTZEN HIER KÜNFTIG.</p>
+            </div>)}
+        </div>)}
+
+      {/* Offizielles Formular ausfüllen (PDF) */}
+      {done && !error && (
+        <div className="no-print mb-8 rounded-3xl border border-cobalt/40 bg-cobalt/5 p-5">
+          <div className="flex items-center gap-2"><span className="brand-mono rounded-full bg-cobalt px-2 py-0.5 text-cream-50" style={{ fontSize:9, letterSpacing:'0.12em' }}>NEU</span><Eyebrow>OFFIZIELLES FORMULAR AUTOMATISCH AUSFÜLLEN</Eyebrow></div>
+          <p className="mt-2 text-sm leading-relaxed text-ink-700">Lade das ausfüllbare <strong>PDF-Formular</strong> der Förderung hoch (z. B. aus der Detailansicht). Nomos überträgt die Inhalte deines Entwurfs in die passenden Felder — die letzten 20 % ergänzt du.</p>
+          <input ref={formInputRef} type="file" accept=".pdf,application/pdf" className="hidden" onChange={e=>{ const f=e.target.files?.[0]; if(f) fillForm(f); e.target.value=''; }} />
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button onClick={()=>formInputRef.current?.click()} disabled={formBusy} className="inline-flex items-center gap-2 rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100 transition-transform enabled:hover:scale-[1.03] disabled:opacity-40">
+              {formBusy ? <><span className="spin"><NomosMark size={14} color="var(--honey)" /></span> befüllt …</> : 'PDF-Formular hochladen & ausfüllen'}
+            </button>
+            {formMsg && <span className="text-sm text-ink-700">{formMsg}</span>}
+          </div>
+          <p className="mt-2 brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.1em' }}>● NUR AUSFÜLLBARE PDF-FORMULARE (ACROFORM). KEIN AUTOMATISCHES ABSENDEN AN BEHÖRDENPORTALE.</p>
         </div>)}
 
       {editing && (

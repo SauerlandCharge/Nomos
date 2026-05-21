@@ -184,6 +184,41 @@ export const COMPLIANCE_SCHEMA = {
   required: ["gesamt", "items"],
 };
 
+// ── Checkliste: was außer dem Antrag noch eingereicht werden muss ────────────
+export const CHECKLIST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    gesamt: { type: "string", description: "1-Satz-Einordnung." },
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          dokument: { type: "string", description: "Benötigtes Dokument/Nachweis/Schritt." },
+          pflicht: { type: "boolean", description: "true = i. d. R. Pflicht, false = je nach Fall." },
+          hinweis: { type: "string", description: "Kurzer Hinweis, woher/wie." },
+        },
+        required: ["dokument", "pflicht", "hinweis"],
+      },
+    },
+  },
+  required: ["gesamt", "items"],
+};
+
+export function checklistSystem(grant) {
+  const reqs = (Array.isArray(grant.requirements) && grant.requirements.length ? grant.requirements : ["(keine spezifischen hinterlegt)"]) .map((r) => `  · ${r}`).join("\n");
+  return `Du bist „Nomos", die Gründungs-Engine von Telos AI.
+Erstelle eine Checkliste der Unterlagen/Nachweise/Schritte, die — NEBEN dem eigentlichen Antrag — für die Förderlinie „${grant.name}" (${grant.region}) typischerweise erforderlich sind.
+
+Anforderungen der Linie:
+${reqs}
+
+Berücksichtige übliche Bestandteile (z. B. Businessplan/Vorhabenbeschreibung, Finanzierungs-/Kostenplan, Lebenslauf/Qualifikationsnachweise, Handelsregister-/Gewerbenachweis, De-minimis-Erklärung, Bonitäts-/Eigenmittelnachweis, Kooperations-/LOI). Markiere pro Punkt, ob i. d. R. Pflicht. Sei realistisch, erfinde keine spezifischen Formularnummern. Schließe mit dem Hinweis, dass Details bei der Bewilligungsstelle zu prüfen sind (im Feld gesamt).
+Antworte ausschließlich im geforderten JSON-Schema. Deutsch.`;
+}
+
 export function complianceSystem(grant) {
   const reqs = (Array.isArray(grant.requirements) && grant.requirements.length ? grant.requirements : ["(keine spezifischen hinterlegt)"])
     .map((r) => `  · ${r}`).join("\n");

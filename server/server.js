@@ -7,8 +7,9 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { GRANTS, getGrantById } from "./grants.js";
-import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, RESOLVE_SYSTEM, BUSINESSPLAN_SYSTEM, BUSINESSPLAN_REFINE_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, COMPLIANCE_SCHEMA, complianceSystem, antragSystem } from "./prompts.js";
+import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, RESOLVE_SYSTEM, BUSINESSPLAN_SYSTEM, BUSINESSPLAN_REFINE_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, COMPLIANCE_SCHEMA, complianceSystem, CHECKLIST_SCHEMA, checklistSystem, antragSystem } from "./prompts.js";
 import { buildDocx } from "./export.js";
+import { readFields, fillFields } from "./forms.js";
 import { repo, dbKind } from "./db.js";
 import { hashPassword, verifyPassword, setSession, clearSession, attachUser, requireAuth, validEmail, publicUser } from "./auth.js";
 
@@ -23,7 +24,7 @@ const MODELS = {
 const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-21.5";
+const VERSION = "2026-05-21.6";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -559,6 +560,82 @@ app.post("/api/compliance", async (req, res) => {
     let result = { gesamt: "", items: [] };
     try { result = JSON.parse(textBlock.text); } catch {}
     res.json(result);
+  } catch (err) { sendError(res, err); }
+});
+
+// ── /api/checklist (zusätzlich nötige Unterlagen je Förderlinie) ─────────────
+app.post("/api/checklist", async (req, res) => {
+  try {
+    let grant = getGrantById(req.body?.grantId);
+    if (!grant && req.body?.grant) { try { grant = JSON.parse(req.body.grant); } catch {} }
+    if (!grant) return res.status(400).json({ error: "Unbekannte Förderlinie." });
+    const plan = String(req.body?.plan || "").slice(0, 40000);
+
+    const stream = client().messages.stream({
+      model: MODELS.fast,
+      max_tokens: 3000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: CHECKLIST_SCHEMA } },
+      system: [{ type: "text", text: checklistSystem(grant), cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: plan ? `Vorhaben-Kontext:\n${plan}\n\nErstelle die Checkliste.` : "Erstelle die Checkliste für diese Förderlinie." }],
+    });
+    const message = await stream.finalMessage();
+    const textBlock = message.content.find((b) => b.type === "text");
+    let result = { gesamt: "", items: [] };
+    try { result = JSON.parse(textBlock.text); } catch {}
+    res.json(result);
+  } catch (err) { sendError(res, err); }
+});
+
+// ── /api/fillform (ausfüllbares PDF mit Antrag/Plan befüllen) ────────────────
+const FILLFORM_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    fields: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: { name: { type: "string" }, value: { type: "string" } },
+        required: ["name", "value"],
+      },
+    },
+  },
+  required: ["fields"],
+};
+app.post("/api/fillform", upload.single("form"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Bitte ein ausfüllbares PDF-Formular hochladen." });
+    let fields;
+    try { fields = await readFields(req.file.buffer); }
+    catch { return res.status(400).json({ error: "PDF konnte nicht gelesen werden." }); }
+    if (!fields.length) return res.status(400).json({ error: "Kein ausfüllbares Formular (AcroForm-Felder) erkannt." });
+
+    const context = String(req.body?.content || "").slice(0, 50000);
+    const fieldList = fields.map((f) => `- ${f.name} (${f.type})`).join("\n");
+    const sys = `Du bist „Nomos". Fülle die Felder eines deutschen Förder-/Antragsformulars auf Basis des bereitgestellten Antrags/Businessplans aus.
+Regeln: Nutze NUR Informationen aus dem Kontext. Felder ohne belegbare Info LEER lassen (nicht erraten). Datumsformat TT.MM.JJJJ. Checkboxen: "Ja"/"" verwenden. Werte knapp und korrekt.
+Gib ausschließlich das JSON-Schema zurück (Liste {name,value} nur für befüllbare Felder).`;
+    const stream = client().messages.stream({
+      model: MODELS.deep,
+      max_tokens: 8000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: FILLFORM_SCHEMA } },
+      system: [{ type: "text", text: sys }],
+      messages: [{ role: "user", content: `FORMULARFELDER:\n${fieldList}\n\nANTRAG/BUSINESSPLAN:\n${context}` }],
+    });
+    const message = await stream.finalMessage();
+    const tb = message.content.find((b) => b.type === "text");
+    let mapping = {};
+    try { for (const f of (JSON.parse(tb.text).fields || [])) if (f && f.name) mapping[f.name] = f.value; } catch {}
+
+    const { buffer, filled } = await fillFields(req.file.buffer, mapping);
+    const safe = String(req.body?.projektname || "Antrag").replace(/[^\w]+/g, "_").slice(0, 60) || "Antrag";
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${safe}_ausgefuellt.pdf"`);
+    res.setHeader("X-Fields-Filled", String(filled));
+    res.send(buffer);
   } catch (err) { sendError(res, err); }
 });
 
