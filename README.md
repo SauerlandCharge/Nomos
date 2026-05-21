@@ -99,6 +99,36 @@ npm run dev
 
 Mit `[BITTE ERGÄNZEN: …]` markierte Stellen brauchen deinen eigenen Input.
 
+Mit **Konto** (oben rechts „Anmelden") werden Analyse & Antrag automatisch in deinem
+**Verlauf** gespeichert und sind später erneut aufrufbar; ohne Konto wird nichts gespeichert.
+
+---
+
+## Deployment (gehostet)
+
+Lokal genügt `npm start` (Speicher: lokale JSON-Datei `data/store.json`). Für eine
+öffentlich erreichbare Version mit dauerhaftem, gerätübergreifendem Speicher:
+
+**Render (Blueprint, empfohlen)**
+1. Repo auf GitHub → **render.com → New → Blueprint** → dieses Repo wählen (nutzt `render.yaml`).
+2. Render legt Web-Service (Docker) **und** einen Postgres an. `DATABASE_URL` wird automatisch
+   verknüpft, `SESSION_SECRET` automatisch erzeugt.
+3. **`ANTHROPIC_API_KEY`** im Dashboard als Secret eintragen → Deploy.
+
+**Allgemein (Docker / anderer Host)**
+```bash
+docker build -t telos-nomos .
+docker run -p 3000:3000 \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -e SESSION_SECRET="$(openssl rand -hex 32)" \
+  -e DATABASE_URL=postgres://user:pass@host:5432/db \
+  telos-nomos
+```
+
+- Ist `DATABASE_URL` gesetzt → **PostgreSQL** (Tabellen werden beim Start automatisch angelegt);
+  ohne → lokale JSON-Datei. `SESSION_SECRET` in Produktion **zwingend** setzen.
+- Healthcheck-Endpunkt: `GET /healthz` (liefert u. a. `db` und `version`).
+
 ---
 
 ## Wichtige Hinweise

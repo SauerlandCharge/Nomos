@@ -1,0 +1,25 @@
+# Render-Blueprint für Telos · Nomos (Web-Service via Docker + verwalteter Postgres).
+# Anleitung: render.com → New → Blueprint → dieses Repo wählen.
+services:
+  - type: web
+    name: telos-nomos
+    runtime: docker
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ANTHROPIC_API_KEY
+        sync: false            # im Render-Dashboard eintragen (Secret)
+      - key: SESSION_SECRET
+        generateValue: true    # Render erzeugt einen sicheren Zufallswert
+      - key: NOMOS_MODEL
+        value: claude-opus-4-7
+      - key: DATABASE_URL
+        fromDatabase:
+          name: telos-nomos-db
+          property: connectionString
+
+databases:
+  - name: telos-nomos-db
+    plan: basic-256mb

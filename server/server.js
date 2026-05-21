@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 3000;
 const MODEL = process.env.NOMOS_MODEL || "claude-opus-4-7";
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-20.4";
+const VERSION = "2026-05-20.5";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
