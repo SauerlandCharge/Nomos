@@ -114,6 +114,23 @@ function useVersion() {
   }, []);
   return v;
 }
+// Spracheingabe via Web Speech API (Chrome/Safari). Fällt sauber zurück, wenn nicht unterstützt.
+function useSpeech(onText) {
+  const recRef = useRef(null);
+  const [listening, setListening] = useState(false);
+  const SR = (typeof window !== 'undefined') && (window.SpeechRecognition || window.webkitSpeechRecognition);
+  function toggle() {
+    if (!SR) return;
+    if (listening) { recRef.current && recRef.current.stop(); return; }
+    const rec = new SR();
+    rec.lang = 'de-DE'; rec.interimResults = false; rec.continuous = true;
+    rec.onresult = (e) => { let t=''; for (let i=e.resultIndex;i<e.results.length;i++) if (e.results[i].isFinal) t += e.results[i][0].transcript; if (t.trim()) onText(t.trim()); };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recRef.current = rec; rec.start(); setListening(true);
+  }
+  return { supported: !!SR, listening, toggle };
+}
 
 /* ── Brand atoms ─────────────────────────────────────────────────────────── */
 function Wordmark({ size=26, color='var(--ink-900)' }) {
@@ -520,8 +537,34 @@ function PagePreise({ startPitch }) {
         </p>
       </div>
 
+      <div className="mt-16"><SectionLabel>HÄUFIGE FRAGEN</SectionLabel>
+        <div className="flex flex-col gap-2">
+          {FAQ.map((f,i)=><FaqItem key={i} q={f.q} a={f.a} />)}
+        </div>
+      </div>
+
       <CTAband startPitch={startPitch} />
     </PageShell>
+  );
+}
+
+const FAQ = [
+  { q: 'Wie verbindlich ist der generierte Antrag?', a: 'Nomos liefert einen strukturierten Entwurf von rund 80 %. Persönliche Angaben, rechtsverbindliche Erklärungen und Unterschriften ergänzt du selbst — mit „[BITTE ERGÄNZEN]" markierte Stellen brauchen deinen Input. Beträge und Förderfähigkeit immer über die offizielle Stelle prüfen.' },
+  { q: 'Werden meine Dokumente gespeichert?', a: 'Ohne Konto wird nichts dauerhaft gespeichert — Dokumente werden nur zur Analyse verarbeitet. Übertragung erfolgt TLS-verschlüsselt; Inhalte werden laut Anthropics Geschäftsbedingungen nicht zum Training der KI-Modelle verwendet.' },
+  { q: 'Woher kommen die Förderlinien?', a: 'Aus einer kuratierten Datenbank (Bund, Länder, EU) plus optionaler Live-Websuche nach aktuellen Programmen. Quellen werden verlinkt; verbindliche Angaben bitte beim Fördergeber bzw. auf foerderdatenbank.de prüfen.' },
+  { q: 'Was kostet die Nutzung?', a: 'Die KI-Nutzung ist nutzungsbasiert — je nach Plan-Länge typischerweise wenige Cent bis wenige Euro pro kompletter Analyse + Antrag. Mit günstigerem Modell (Sonnet) sinken die Kosten weiter.' },
+  { q: 'In welcher Sprache arbeitet Nomos?', a: 'Eingabe in lockerem Deutsch (auch per Spracheingabe); die Ausgabe ist präzises Behördendeutsch. Einzelne EU-Programme erwarten englische Anträge — das berücksichtigt Nomos je Förderlinie.' },
+];
+function FaqItem({ q, a }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-2xl border border-cream-300 bg-cream-50">
+      <button onClick={()=>setOpen(o=>!o)} className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left">
+        <span className="text-sm font-medium text-ink-900">{q}</span>
+        <span className="flex-none text-terracotta transition-transform" style={{ transform: open?'rotate(45deg)':'none', fontSize:18, lineHeight:1 }}>+</span>
+      </button>
+      {open && <p className="anim-fadein px-5 pb-4 text-sm leading-relaxed text-ink-700">{a}</p>}
+    </div>
   );
 }
 
@@ -570,7 +613,7 @@ function App() {
         : <>
             {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} />}
             {view==='analyze'   && <Analyzing proj={proj} />}
-            {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis}} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
+            {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis}} onUpdate={setAnalysis} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
             {view==='antrag'    && <Antrag {...{proj,pitch,file,grant:selected}} onBack={()=>setView('dashboard')} onReset={reset} />}
           </>}
       <Footer go={go} startPitch={startPitch} />
@@ -628,6 +671,7 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
   const [drag, setDrag] = useState(false);
   const inputRef = useRef(null);
   const model = useModel();
+  const speech = useSpeech((t) => setPitch(p => (p ? p.trim() + ' ' : '') + t));
   const canGo = pitch.trim().length > 24 || !!file;
 
   function onDrop(e){ e.preventDefault(); setDrag(false); const f=e.dataTransfer.files?.[0]; if(f) setFile(f); }
@@ -660,9 +704,21 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
                 : <span className="text-ink-500">Pitch-Deck / Businessplan als <strong className="text-ink-700">PDF, DOCX oder TXT</strong> hierher ziehen oder klicken</span>}
             </div>
 
-            <textarea value={pitch} onChange={e=>setPitch(e.target.value)} rows={4}
-              placeholder="… oder beschreibe deine Idee als Text (auch in lockerem Gründer-Slang)."
-              className="mt-3 w-full resize-none rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
+            <div className="relative mt-3">
+              <textarea value={pitch} onChange={e=>setPitch(e.target.value)} rows={4}
+                placeholder="… oder beschreibe deine Idee als Text (auch in lockerem Gründer-Slang)."
+                className="w-full resize-none rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 pr-12 text-sm leading-relaxed outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
+              {speech.supported && (
+                <button onClick={speech.toggle} title={speech.listening ? 'Aufnahme stoppen' : 'Per Sprache diktieren'}
+                  className={"absolute bottom-2.5 right-2.5 flex h-9 w-9 items-center justify-center rounded-full transition-colors "+(speech.listening ? 'bg-terracotta text-cream-50' : 'border border-cream-400 text-ink-700 hover:border-ink-900')}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 19v3" />
+                  </svg>
+                  {speech.listening && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-honey dot-pulse" />}
+                </button>
+              )}
+            </div>
+            {speech.listening && <p className="mt-1.5 brand-mono text-terracotta" style={{ fontSize:10, letterSpacing:'0.1em' }}>● HÖRT ZU … sprich deine Idee ein</p>}
 
             <p className="mt-2 text-xs leading-relaxed text-ink-500">🔒 Sicheres Upload: Deine Dokumente werden nach der Analyse nicht serverseitig gespeichert.</p>
 
@@ -761,7 +817,77 @@ function Analyzing({ proj }) {
 }
 
 /* ── Dashboard ──────────────────────────────────────────────────────────── */
-function Dashboard({ proj, pitch, file, analysis, onSelect }) {
+// Gezielte KI-Rückfragen → Antworten → Re-Scoring der Treffer.
+function FollowupPanel({ analysis, onUpdate }) {
+  const [phase, setPhase] = useState('idle'); // idle|loading|asking|empty|rescoring|done|error
+  const [qs, setQs] = useState([]);
+  const [answers, setAnswers] = useState({});
+  const [err, setErr] = useState('');
+
+  async function load() {
+    setPhase('loading'); setErr('');
+    try {
+      const res = await fetch('/api/followup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ analysis }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || ('Fehler '+res.status)); }
+      const d = await res.json();
+      if (!d.questions || !d.questions.length) { setPhase('empty'); return; }
+      setQs(d.questions); setAnswers({}); setPhase('asking');
+    } catch (e) { setErr(e.message); setPhase('error'); }
+  }
+  async function submit() {
+    const ans = qs.map((q,i)=>({ frage:q.frage, antwort:(answers[i]||'').trim() })).filter(a=>a.antwort);
+    if (!ans.length) return;
+    setPhase('rescoring'); setErr('');
+    try {
+      const res = await fetch('/api/rescore', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ analysis, answers: ans }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || ('Fehler '+res.status)); }
+      const updated = await res.json();
+      onUpdate(updated); setPhase('done');
+    } catch (e) { setErr(e.message); setPhase('error'); }
+  }
+
+  return (
+    <div className="mt-8">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <Eyebrow>SCHRITT 2b · TREFFER VERFEINERN (KI-RÜCKFRAGEN)</Eyebrow>
+        {(phase==='idle'||phase==='empty'||phase==='done'||phase==='error') &&
+          <button onClick={load} className="rounded-full border border-terracotta px-4 py-2 text-xs text-ink-900 transition-colors hover:bg-terracotta hover:text-cream-50">
+            {phase==='idle' ? 'Offene Rückfragen prüfen' : 'Erneut prüfen'}
+          </button>}
+      </div>
+
+      {phase==='idle' && <p className="text-sm leading-relaxed text-ink-700">Fehlen im Plan Angaben, die für einzelne Förderlinien entscheidend sind (z. B. Studienabschluss, Sitz, KMU-Status)? Nomos stellt gezielte Rückfragen und passt danach den Score an.</p>}
+      {phase==='loading' && <div><p className="mb-2.5 text-sm text-ink-500">Nomos prüft offene Punkte …</p><SkeletonRows n={2} /></div>}
+      {phase==='empty' && <div className="rounded-2xl border border-cream-300 bg-cream-50 p-4 text-sm text-ink-700">Keine wesentlichen Rückfragen — das Matching ist mit den vorhandenen Angaben eindeutig.</div>}
+      {err && <div className="rounded-2xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-ink-900">{err}</div>}
+
+      {(phase==='asking'||phase==='rescoring') && (
+        <div className="rounded-3xl border border-cream-300 bg-cream-50 p-5">
+          <div className="flex flex-col gap-4">
+            {qs.map((q,i)=>(
+              <div key={i}>
+                <div className="text-sm font-medium text-ink-900">{q.frage}</div>
+                <div className="brand-mono mt-0.5 text-ink-500" style={{ fontSize:10, letterSpacing:'0.06em' }}>WARUM: {q.warum}</div>
+                <input value={answers[i]||''} onChange={e=>setAnswers(a=>({...a,[i]:e.target.value}))} disabled={phase==='rescoring'}
+                  placeholder="Deine Antwort …"
+                  className="mt-2 w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-2.5 text-sm outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900 disabled:opacity-60" />
+              </div>))}
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <button onClick={submit} disabled={phase==='rescoring'}
+              className="rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100 transition-transform enabled:hover:scale-[1.03] disabled:opacity-40">
+              {phase==='rescoring' ? 'Aktualisiere Score …' : 'Score aktualisieren →'}
+            </button>
+            {phase==='rescoring' && <span className="spin"><NomosMark size={16} color="var(--terracotta)" /></span>}
+          </div>
+        </div>)}
+
+      {phase==='done' && <div className="rounded-2xl border border-cobalt/40 bg-cobalt/10 px-4 py-3 text-sm text-ink-900">✓ Treffer mit deinen Zusatzinfos neu bewertet — die Scores oben sind aktualisiert.</div>}
+    </div>
+  );
+}
+
+function Dashboard({ proj, pitch, file, analysis, onUpdate, onSelect }) {
   const a = analysis || {};
   const sourceText = pitch.trim() || a.einzeiler || '';
   const [translated, setTranslated] = useState('');
@@ -822,8 +948,11 @@ function Dashboard({ proj, pitch, file, analysis, onSelect }) {
         <Eyebrow className="mb-3">SCHRITT 2 · HYPERLOKALES MATCHING</Eyebrow>
         {(a.matches||[]).length===0
           ? <div className="rounded-2xl border border-cream-300 bg-cream-50 p-5 text-sm text-ink-700">Keine ausreichend passenden Förderlinien gefunden. Ergänze deinen Plan um Region, Phase und Technologiefeld und versuche es erneut.</div>
-          : <div className="flex flex-col gap-2.5">{a.matches.map((g,i)=><MatchRow key={g.id} g={g} delay={i*60} onSelect={()=>onSelect(g)} />)}</div>}
+          : <div className="flex flex-col gap-2.5">{a.matches.map((g,i)=><MatchRow key={(g.id||'')+'-'+g.fit} g={g} delay={i*60} onSelect={()=>onSelect(g)} />)}</div>}
       </div>
+
+      {/* Rückfragen / Verfeinerung */}
+      {(a.matches||[]).length>0 && <FollowupPanel analysis={analysis} onUpdate={onUpdate} />}
 
       {/* live web search */}
       <div className="mt-8">
@@ -993,7 +1122,15 @@ function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
     return DOMPurify.sanitize(marked_);
   }, [text]);
 
+  const [editing, setEditing] = useState(false);
   function copy(){ navigator.clipboard?.writeText(text); }
+  function download(){
+    const blob = new Blob([text], { type:'text/markdown;charset=utf-8' });
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = u; a.download = (proj || 'Foerderantrag').replace(/[^\w]+/g,'_') + '.md';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
+  }
 
   return (
     <main className="anim-fadein mx-auto max-w-4xl px-6 pb-24 pt-8 md:px-12">
@@ -1007,6 +1144,8 @@ function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={onBack} className="rounded-full border border-cream-400 px-4 py-2 text-sm text-ink-900 transition-colors hover:border-ink-900">← Förderlinien</button>
+          <button onClick={()=>setEditing(e=>!e)} disabled={!done} className={"rounded-full px-4 py-2 text-sm transition-colors disabled:opacity-40 "+(editing?'bg-terracotta text-cream-50':'border border-cream-400 text-ink-900 enabled:hover:border-ink-900')}>{editing?'Vorschau':'Bearbeiten'}</button>
+          <button onClick={download} disabled={!done} className="rounded-full border border-cream-400 px-4 py-2 text-sm text-ink-900 transition-colors enabled:hover:border-ink-900 disabled:opacity-40">⬇ .md</button>
           <button onClick={copy} disabled={!done} className="rounded-full border border-cream-400 px-4 py-2 text-sm text-ink-900 transition-colors enabled:hover:border-ink-900 disabled:opacity-40">Kopieren</button>
           <button onClick={()=>window.print()} disabled={!done} className="rounded-full bg-ink-900 px-4 py-2 text-sm font-medium text-cream-100 transition-all enabled:hover:scale-[1.03] disabled:opacity-30">Als PDF exportieren</button>
         </div>
@@ -1033,9 +1172,15 @@ function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
           </div>
         </div>)}
 
+      {editing && (
+        <p className="no-print anim-fadein mb-3 text-sm text-ink-500">Bearbeitungsmodus — Text (Markdown) direkt anpassen, fehlende Infos ergänzen. „Vorschau" zeigt das formatierte Ergebnis, „⬇ .md"/„Als PDF" exportieren den aktuellen Stand.</p>
+      )}
       <article className="print-doc rounded-3xl border border-cream-300 bg-cream-50 p-8 md:p-12">
-        {text ? <div className="md" dangerouslySetInnerHTML={{ __html: html }} />
-              : <div className="flex items-center gap-3 text-ink-500"><span className="spin"><NomosMark size={18} color="var(--ink-500)" /></span><span className="brand-mono" style={{ fontSize:12 }}>Nomos formuliert …</span></div>}
+        {editing
+          ? <textarea value={text} onChange={e=>setText(e.target.value)} spellCheck={true}
+              className="brand-mono h-[60vh] w-full resize-y rounded-xl border border-cream-300 bg-cream-100 p-4 text-[13px] leading-relaxed text-ink-900 outline-none focus:border-ink-900" />
+          : (text ? <div className="md" dangerouslySetInnerHTML={{ __html: html }} />
+              : <div className="flex items-center gap-3 text-ink-500"><span className="spin"><NomosMark size={18} color="var(--ink-500)" /></span><span className="brand-mono" style={{ fontSize:12 }}>Nomos formuliert …</span></div>)}
         {done && !error && (
           <footer className="anim-fadein mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-cream-300 pt-6">
             <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.14em' }}>ERSTELLT MIT NOMOS · POWERED BY TELOS</span>
