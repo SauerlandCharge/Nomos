@@ -215,7 +215,57 @@ function Marketing({ page, go, startPitch }) {
   if (page==='engine')        return <PageEngine startPitch={startPitch} />;
   if (page==='foerderlinien') return <PageFoerderlinien startPitch={startPitch} />;
   if (page==='preise')        return <PagePreise startPitch={startPitch} />;
+  if (page==='vision')        return <PageVision startPitch={startPitch} go={go} />;
   return null;
+}
+
+// Produktfamilie von Telos — Nomos ist live, der Rest ist Roadmap.
+const PRODUCTS = [
+  { name: 'Nomos', greek: 'νόμος · Gesetz/Ordnung', status: 'live', desc: 'Übersetzt Idee/Businessplan in Förderanträge: Matching, Behördendeutsch, 80 %-Entwurf.' },
+  { name: 'Elenchos', greek: 'ἔλεγχος · Prüfung', status: 'geplant', desc: 'Prüft Vorhaben kritisch — Annahmen, Risiken, Tragfähigkeit, bevor es ernst wird.' },
+  { name: 'Metron', greek: 'μέτρον · Maß', status: 'geplant', desc: 'Kennzahlen & Finanzen: Planung, Forecasts und Mess­barkeit für die Gründung.' },
+  { name: 'Agora', greek: 'ἀγορά · Marktplatz', status: 'geplant', desc: 'Markt, Kund:innen und Sichtbarkeit — von Positionierung bis Go-to-Market.' },
+  { name: 'Hermes', greek: 'Ἑρμῆς · Bote', status: 'geplant', desc: 'Kommunikation & Behördengänge: Schriftverkehr, Fristen, Verwaltung im Griff.' },
+];
+
+function PageVision({ startPitch, go }) {
+  return (
+    <PageShell>
+      <PageHero eyebrow="VISION · TELOS"
+        title={<>Gründen, <em className="brand-serif italic" style={{ fontWeight:400 }}>entbürokratisiert</em>.</>}
+        lede="Telos macht aus rohen Startup-Visionen strukturierte institutionelle Realität. Wir nehmen Gründer:innen die bürokratischen Hürden ab — Schritt für Schritt, mit KI-Lösungen für jede Phase der Gründung." />
+
+      <div className="mt-10 grid gap-6 lg:grid-cols-[1.05fr_1fr]">
+        <div className="rounded-3xl bg-ink-900 p-8 text-cream-100 md:p-10">
+          <div className="brand-mono" style={{ fontSize:11, letterSpacing:'0.18em', color:'rgba(245,240,230,0.6)' }}>UNSERE MISSION</div>
+          <p className="mt-4 brand-serif italic" style={{ fontSize:26, lineHeight:1.25 }}>„Jede gute Idee scheitert zu oft an Formularen, Fristen und Förder­dschungel. Telos räumt das weg."</p>
+          <p className="mt-4 text-sm leading-relaxed text-cream-300">Die Gründung soll an der Idee gemessen werden — nicht an der Geduld mit Behörden. Dafür bauen wir eine Produktfamilie, die den gesamten Weg begleitet.</p>
+        </div>
+        <div className="flex flex-col justify-center gap-3">
+          {['Weniger Bürokratie, mehr Unternehmertum.','KI-Lösungen für jede Gründungsphase.','Ein durchgängiges Ökosystem statt Insellösungen.'].map((t,i)=>(
+            <div key={i} className="flex items-center gap-3 rounded-2xl border border-cream-300 bg-cream-50 p-4"><ArcMark size={22} color="var(--terracotta)" /><span className="text-sm font-medium text-ink-900">{t}</span></div>))}
+        </div>
+      </div>
+
+      <div className="mt-14"><SectionLabel>DIE PRODUKTFAMILIE</SectionLabel>
+        <p className="mb-5 max-w-2xl text-sm leading-relaxed text-ink-700"><strong className="text-ink-900">Nomos ist der erste Schritt</strong> — live und einsatzbereit. Die weiteren Produkte folgen und greifen ineinander, bis Telos die Gründung vollständig abdeckt.</p>
+        <div className="grid gap-3 md:grid-cols-2">
+          {PRODUCTS.map((p)=>(
+            <div key={p.name} className={"rounded-3xl border p-6 "+(p.status==='live' ? 'border-ink-900 bg-cream-50' : 'border-cream-300 bg-cream-100')}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2"><NomosMark size={18} color="var(--ink-900)" /><span className="text-base font-medium text-ink-900">{p.name}</span></div>
+                <span className={"brand-mono rounded-full px-2.5 py-0.5 "+(p.status==='live' ? 'bg-ink-900 text-cream-50' : 'bg-cream-300 text-ink-700')} style={{ fontSize:9, letterSpacing:'0.12em' }}>{p.status==='live' ? '● LIVE' : 'IN PLANUNG'}</span>
+              </div>
+              <div className="brand-mono mt-1 text-ink-500" style={{ fontSize:10, letterSpacing:'0.08em' }}>{p.greek}</div>
+              <p className="mt-2 text-sm leading-relaxed text-ink-700">{p.desc}</p>
+              {p.status==='live' && <button onClick={()=>go('engine')} className="brand-mono mt-3 text-terracotta hover:underline" style={{ fontSize:10, letterSpacing:'0.1em' }}>MEHR ZUR ENGINE →</button>}
+            </div>))}
+        </div>
+      </div>
+
+      <CTAband startPitch={startPitch} />
+    </PageShell>
+  );
 }
 
 const PageShell = ({ children }) => <main className="anim-fadein mx-auto max-w-6xl px-6 pb-20 pt-12 md:px-12">{children}</main>;
@@ -970,7 +1020,7 @@ function App() {
         : page !== 'home'
         ? <Marketing page={page} go={go} startPitch={startPitch} />
         : <>
-            {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} onIdea={()=>go('businessplan')} />}
+            {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} onIdea={()=>go('businessplan')} onVision={()=>go('vision')} />}
             {view==='analyze'   && <Analyzing proj={proj} />}
             {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis}} onUpdate={setAnalysis} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
             {view==='antrag'    && <Antrag {...{proj,pitch,file,grant:selected,pitchId,loggedIn:!!auth.user}} onBack={()=>setView('dashboard')} onReset={reset} />}
@@ -981,7 +1031,7 @@ function App() {
   );
 }
 
-const NAV_ITEMS = [['Produkt','produkt'],['Nomos-Engine','engine'],['Förderlinien','foerderlinien'],['Preise','preise']];
+const NAV_ITEMS = [['Produkt','produkt'],['Nomos-Engine','engine'],['Förderlinien','foerderlinien'],['Preise','preise'],['Vision','vision']];
 
 function Nav({ page, go, onLogo, startPitch, auth, onLogin }) {
   const [open, setOpen] = useState(false);
@@ -1036,7 +1086,7 @@ function Nav({ page, go, onLogo, startPitch, auth, onLogin }) {
 }
 
 /* ── Landing ─────────────────────────────────────────────────────────────── */
-function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnalyze, onIdea }) {
+function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnalyze, onIdea, onVision }) {
   const [drag, setDrag] = useState(false);
   const inputRef = useRef(null);
   const model = useModel();
@@ -1049,7 +1099,10 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
     <main className="anim-fadein mx-auto max-w-7xl px-6 pb-24 pt-12 md:px-12">
       <div className="grid items-start gap-12 lg:grid-cols-[1.1fr_1fr]">
         <div>
-          <NomosBadge />
+          <div className="flex flex-wrap items-center gap-3">
+            <NomosBadge />
+            <button onClick={onVision} className="brand-mono text-ink-500 transition-colors hover:text-ink-900" style={{ fontSize:10, letterSpacing:'0.14em' }}>· DAS ERSTE PRODUKT VON TELOS → VISION</button>
+          </div>
           <h1 className="mt-6 font-sans" style={{ fontSize:'clamp(46px,7vw,82px)', fontWeight:400, letterSpacing:'-0.04em', lineHeight:0.94 }}>
             Vom Pitch<br/>zum <em className="brand-serif italic" style={{ fontWeight:400 }}>Bescheid</em>.<br/>Reibungslos.
           </h1>
