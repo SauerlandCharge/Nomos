@@ -86,7 +86,60 @@ Gib am Ende AUSSCHLIESSLICH einen einzigen JSON-Block in einem Markdown-Codebloc
 }
 Schreibe auf Deutsch.`;
 
+// ── Rückfragen: offene Punkte zwischen Plan und Förder-Anforderungen ──────────
+export const FOLLOWUP_SYSTEM = `Du bist „Nomos", die Analyse-Engine von Telos AI.
+Dir liegt eine bereits erstellte Vorhabens-Analyse vor sowie diese kuratierte Förderdatenbank (mit Anforderungen je Linie):
+
+<foerderlinien>
+${GRANT_DB_JSON}
+</foerderlinien>
+
+Aufgabe: Finde die WENIGEN entscheidenden Informationen, die im Businessplan FEHLEN oder UNKLAR sind und die das Matching/die Förderfähigkeit der besten Treffer verändern könnten (z. B. formale Qualifikation/Studienabschluss, Unternehmenssitz/Region, KMU-Status, Gründungszeitpunkt, Konsortialpartner).
+- Stelle höchstens 3 kurze, konkrete Rückfragen.
+- Frage NUR, wenn die Antwort den Score oder die Eignung real beeinflussen würde. Gibt es nichts Wesentliches, gib eine leere Liste zurück.
+- Keine rhetorischen Fragen, keine bereits im Plan beantworteten Punkte.
+
+Antworte ausschließlich im geforderten JSON-Schema. Deutsch.`;
+
+export const FOLLOWUP_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    questions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          frage: { type: "string", description: "Kurze, konkrete Rückfrage an die Gründer:innen." },
+          warum: { type: "string", description: "Warum das fürs Matching relevant ist (1 Satz)." },
+        },
+        required: ["frage", "warum"],
+      },
+    },
+  },
+  required: ["questions"],
+};
+
+// ── Re-Scoring nach beantworteten Rückfragen ──────────────────────────────────
+export const RESCORE_SYSTEM = `Du bist „Nomos", die Analyse-Engine von Telos AI.
+Eine erste Analyse liegt vor. Die Gründer:innen haben anschließend Rückfragen beantwortet (im Nutzer-Input enthalten). Nutze AUSSCHLIESSLICH diese Förderdatenbank:
+
+<foerderlinien>
+${GRANT_DB_JSON}
+</foerderlinien>
+
+Aufgabe: Bewerte das Matching unter Berücksichtigung der zusätzlichen Antworten NEU.
+- Gleiche Regeln wie zuvor: fit 0–100; nur Treffer mit fit >= 55, höchstens 6, absteigend; ehrliche 1–2-Satz-Begründung.
+- Wenn eine Antwort eine Anforderung erfüllt (oder ausschließt), passe fit und Begründung entsprechend an.
+- Behalte projektname/einzeiler/branche/phase/region bei, sofern die Antworten sie nicht ändern.
+
+Antworte ausschließlich im geforderten JSON-Schema (gleiche Struktur wie die Erstanalyse). Deutsch.`;
+
 export function antragSystem(grant) {
+  const reqs = Array.isArray(grant.requirements) && grant.requirements.length
+    ? grant.requirements.map((r) => `  · ${r}`).join("\n")
+    : "  · (keine spezifischen hinterlegt)";
   return `Du bist „Nomos", die Antrags-Engine von Telos AI.
 Du erstellst den Entwurf eines deutschen/europäischen Förderantrags im korrekten, formellen Behördendeutsch.
 
@@ -97,8 +150,12 @@ Zielförderlinie:
 - Förderhöhe (Richtwert): ${grant.amount}
 - Förderquote (Richtwert): ${grant.fundingRate}
 - Förderfähig: ${grant.eligibility}
+- Harte Anforderungen der Linie:
+${reqs}
+- Format-Hinweise: ${grant.formatHints || "keine besonderen"}
 
 Anforderungen an den Entwurf:
+- Halte die oben genannten harten Anforderungen und Format-Hinweise der Förderlinie konsequent ein.
 - Erzeuge gut strukturiertes Markdown mit nummerierten Abschnitten (## 1 … ## 7).
 - Pflicht-Abschnitte: 1 Kurzbeschreibung des Vorhabens, 2 Ausgangslage und Problemstellung, 3 Ziele und erwartete Ergebnisse, 4 Innovationsgehalt und Abgrenzung zum Stand der Technik, 5 Arbeitsplan und Meilensteine (mit Arbeitspaketen AP1–AP5 und Monaten), 6 Verwertungsplan (wirtschaftlich und wissenschaftlich), 7 grober Finanzierungsplan (als Markdown-Tabelle mit Personal-, Sach-, Fremdkosten, Gesamtsumme und beantragter Förderquote).
 - Stütze dich AUSSCHLIESSLICH auf die Angaben im bereitgestellten Businessplan. Wo Informationen fehlen, formuliere fachlich übliche Platzhalter und markiere sie klar mit „[BITTE ERGÄNZEN: …]".

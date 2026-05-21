@@ -7,14 +7,14 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { GRANTS, getGrantById } from "./grants.js";
-import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, antragSystem } from "./prompts.js";
+import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, antragSystem } from "./prompts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const MODEL = process.env.NOMOS_MODEL || "claude-opus-4-7";
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-20.1";
+const VERSION = "2026-05-20.2";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -72,6 +72,22 @@ function hasContent(blocks) {
   return blocks.some((b) => (b.type === "text" && b.text.length > 20) || b.type === "document");
 }
 
+// KI-Treffer mit den vollständigen Stammdaten der Förderlinie anreichern.
+function enrichMatches(rawMatches) {
+  return (rawMatches || [])
+    .map((m) => {
+      const g = getGrantById(m.id);
+      if (!g) return null;
+      return {
+        id: g.id, name: g.name, provider: g.provider, region: g.region,
+        amount: g.amount, fundingRate: g.fundingRate, summary: g.summary, url: g.url,
+        fit: Math.max(0, Math.min(100, parseInt(m.fit, 10) || 0)), begruendung: m.begruendung,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.fit - a.fit);
+}
+
 // Akzeptierte Upload-Typen: PDF, DOCX, TXT.
 function isSupportedFile(file) {
   const mime = file.mimetype || "";
@@ -122,21 +138,66 @@ app.post("/api/analyze", upload.single("document"), async (req, res) => {
       throw new Error("Die Analyse konnte nicht gelesen werden (unvollständige Antwort). Bitte erneut versuchen.");
     }
 
-    // Treffer mit den vollständigen Stammdaten anreichern.
-    const matches = (analysis.matches || [])
-      .map((m) => {
-        const g = getGrantById(m.id);
-        if (!g) return null;
-        return {
-          id: g.id, name: g.name, provider: g.provider, region: g.region,
-          amount: g.amount, fundingRate: g.fundingRate,
-          fit: Math.max(0, Math.min(100, m.fit)), begruendung: m.begruendung,
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.fit - a.fit);
+    res.json({ ...analysis, matches: enrichMatches(analysis.matches) });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
 
-    res.json({ ...analysis, matches });
+// ── /api/followup (gezielte Rückfragen zum Matching) ──────────────────────────
+app.post("/api/followup", async (req, res) => {
+  try {
+    const { analysis } = req.body || {};
+    if (!analysis) return res.status(400).json({ error: "Keine Analyse übergeben." });
+    const context =
+      `Vorhaben: ${analysis.projektname || ""} — ${analysis.einzeiler || ""}\n` +
+      `Branche: ${analysis.branche || "k.A."} · Phase: ${analysis.phase || "k.A."} · Region: ${analysis.region || "k.A."}\n` +
+      `Bisherige Treffer (id:fit): ${(analysis.matches || []).map((m) => `${m.id}:${m.fit}`).join(", ")}\n` +
+      `Erkannte Lücken: ${(analysis.luecken || []).join("; ")}`;
+
+    const stream = client().messages.stream({
+      model: MODEL,
+      max_tokens: 4000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: FOLLOWUP_SCHEMA } },
+      system: [{ type: "text", text: FOLLOWUP_SYSTEM, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: `Finde offene, entscheidende Rückfragen für dieses Vorhaben:\n\n${context}` }],
+    });
+    const message = await stream.finalMessage();
+    const textBlock = message.content.find((b) => b.type === "text");
+    let questions = [];
+    try { questions = (JSON.parse(textBlock.text).questions || []).slice(0, 3); } catch {}
+    res.json({ questions });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// ── /api/rescore (Matching nach beantworteten Rückfragen neu bewerten) ────────
+app.post("/api/rescore", async (req, res) => {
+  try {
+    const { analysis, answers } = req.body || {};
+    if (!analysis || !Array.isArray(answers) || !answers.length) {
+      return res.status(400).json({ error: "Analyse oder Antworten fehlen." });
+    }
+    const qa = answers.map((a) => `F: ${a.frage}\nA: ${a.antwort}`).join("\n\n");
+    const context =
+      `ERSTANALYSE (JSON):\n${JSON.stringify({ ...analysis, matches: (analysis.matches || []).map((m) => ({ id: m.id, fit: m.fit, begruendung: m.begruendung })) })}\n\n` +
+      `ZUSÄTZLICHE ANTWORTEN DER GRÜNDER:INNEN:\n${qa}`;
+
+    const stream = client().messages.stream({
+      model: MODEL,
+      max_tokens: 16000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "high", format: { type: "json_schema", schema: ANALYZE_SCHEMA } },
+      system: [{ type: "text", text: RESCORE_SYSTEM, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: `Bewerte das Matching mit den Zusatzinfos neu:\n\n${context}` }],
+    });
+    const message = await stream.finalMessage();
+    const textBlock = message.content.find((b) => b.type === "text");
+    const updated = salvageAnalysis(textBlock?.text || "");
+    if (!updated) throw new Error("Re-Scoring konnte nicht gelesen werden. Bitte erneut versuchen.");
+    res.json({ ...updated, matches: enrichMatches(updated.matches) });
   } catch (err) {
     sendError(res, err);
   }

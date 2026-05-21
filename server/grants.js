@@ -202,6 +202,98 @@ export const GRANTS = [
   },
 ];
 
+// Zusatz-Metadaten je Förderlinie: Kurzbeschreibung, offizielle Programmseite
+// (verifizierte Homepages; Deep-Links vor echter Antragstellung prüfen),
+// harte Anforderungen (für Matching & Rückfragen) und Format-Hinweise (für die
+// vorgabenkonforme Antragsgenerierung).
+const META = {
+  "exist-gruenderstipendium": {
+    summary: "Stipendium für innovative, technologie- oder wissensbasierte Gründungen aus der Hochschule — vor der Gründung.",
+    url: "https://www.exist.de",
+    requirements: ["Bezug zu Hochschule/Forschungseinrichtung", "Vorhaben noch vor der Gründung", "innovatives, technologie- oder wissensbasiertes Konzept", "Gründungsteam mit fachlicher Qualifikation (häufig Hochschulabschluss)"],
+    formatHints: "Ideenpapier/Skizze + Businessplan; Fokus auf Innovationsgrad, Team-Qualifikation und Umsetzungsfahrplan.",
+  },
+  "exist-forschungstransfer": {
+    summary: "Förderung für forschungsbasierte Ausgründungen mit aufwändigen, risikoreichen Entwicklungsarbeiten (zwei Phasen).",
+    url: "https://www.exist.de",
+    requirements: ["forschungsbasiertes Vorhaben aus einer Hochschule/Forschungseinrichtung", "aufwändige, risikoreiche FuE nötig", "wissenschaftliche Anbindung/Team"],
+    formatHints: "Detaillierter FuE- und Arbeitsplan mit Meilensteinen; wissenschaftliche und wirtschaftliche Verwertung getrennt darstellen.",
+  },
+  "kmu-innovativ": {
+    summary: "FuE-Förderung des BMBF für anspruchsvolle Innovationsprojekte von KMU in definierten Technologiefeldern.",
+    url: "https://www.foerderdatenbank.de",
+    requirements: ["KMU-Status", "anspruchsvolles FuE-Vorhaben", "Einordnung in ein förderfähiges Technologiefeld (z. B. Klima/Energie, Gesundheit, KI)"],
+    formatHints: "Vorhabenbeschreibung mit Stand der Technik, Arbeitspaketen und Verwertungsplan.",
+  },
+  "zim": {
+    summary: "Technologie- und branchenoffene Förderung marktorientierter FuE-Projekte des Mittelstands.",
+    url: "https://www.zim.de",
+    requirements: ["KMU bzw. Mittelstand", "marktorientiertes FuE-Projekt", "erkennbares technisches Risiko/Innovationssprung"],
+    formatHints: "Einzel- oder Kooperationsprojekt; Arbeitsplan, Kostenplan und Markt-/Verwertungsperspektive.",
+  },
+  "go-digital": {
+    summary: "Geförderte Beratung für kleine Unternehmen rund um Digitalisierung, Online-Marketing und IT-Sicherheit.",
+    url: "https://www.foerderdatenbank.de",
+    requirements: ["kleines Unternehmen", "Beratungs-/Digitalisierungsbedarf", "Umsetzung mit autorisiertem Beratungsunternehmen"],
+    formatHints: "Beratungsfokus statt FuE; konkrete Maßnahmen und erwartete Wirkung beschreiben.",
+  },
+  "invest-zuschuss": {
+    summary: "Erwerbszuschuss, der private Investments von Business Angels in junge innovative Unternehmen attraktiver macht.",
+    url: "https://www.bafa.de",
+    requirements: ["junges innovatives Unternehmen", "Einwerbung privaten Beteiligungskapitals (Business Angel)", "Antrag von Investor und Unternehmen"],
+    formatHints: "Nachweis von Innovativität und Beteiligungsvertrag; weniger FuE-Plan, mehr Finanzierungsnachweis.",
+  },
+  "bafa-energieberatung": {
+    summary: "Zuschüsse/Kredite für Energieeffizienz und erneuerbare Wärme in Gebäuden und Unternehmen.",
+    url: "https://www.bafa.de",
+    requirements: ["konkrete physische Effizienz-/Wärmemaßnahme", "Gebäude-/Anlagenbezug"],
+    formatHints: "Maßnahmen- und Investitionsbeschreibung; technische Kennwerte und Einsparung ausweisen.",
+  },
+  "horizon-eic-accelerator": {
+    summary: "EU-Förderung (Zuschuss + Equity) für hochinnovative DeepTech-Startups mit großem Marktpotenzial.",
+    url: "https://eic.ec.europa.eu",
+    requirements: ["KMU/Startup mit disruptiver DeepTech", "hohes Markt-/Skalierungspotenzial", "EU-Bezug"],
+    formatHints: "EU-Pitch-Struktur (Excellence, Impact, Implementation), oft englischsprachig.",
+  },
+  "horizon-cluster5": {
+    summary: "EU-Verbundförderung in Klima, Energie und Mobilität — meist mit europäischen Partnern.",
+    url: "https://ec.europa.eu",
+    requirements: ["meist Konsortium mit EU-Partnern", "Thema in Klima/Energie/Mobilität", "EU-weite Relevanz"],
+    formatHints: "Konsortialantrag nach Horizon-Vorlage (Excellence/Impact/Implementation), englischsprachig.",
+  },
+  "bayern-baytou": {
+    summary: "Bayerische Förderung für technologieorientierte Gründungen und junge KMU.",
+    url: "https://www.foerderdatenbank.de",
+    requirements: ["Betriebsstätte/Bezug in Bayern", "technologieorientiertes Vorhaben", "junges Unternehmen/Gründung"],
+    formatHints: "Technologie- und Kostenplan mit Bayern-Bezug.",
+  },
+  "berlin-profit": {
+    summary: "Berliner Förderung (IBB) für innovative FuE- und Marktvorbereitungsprojekte.",
+    url: "https://www.ibb.de",
+    requirements: ["Betriebsstätte in Berlin", "innovatives FuE-/Marktvorbereitungsprojekt"],
+    formatHints: "FuE-/Markteinführungsplan mit Berlin-Bezug; Zuschuss- und Darlehensanteile.",
+  },
+  "nrw-bank-seed": {
+    summary: "Beteiligungs-/Darlehensfinanzierung für junge technologieorientierte Unternehmen in NRW.",
+    url: "https://www.nrwbank.de",
+    requirements: ["Sitz/Bezug in Nordrhein-Westfalen", "technologieorientiertes junges Unternehmen"],
+    formatHints: "Finanzierungs- und Wachstumsplan mit NRW-Bezug.",
+  },
+  "digital-jetzt": {
+    summary: "Investitionszuschuss für KMU in digitale Technologien und Mitarbeiter-Qualifizierung.",
+    url: "https://www.foerderdatenbank.de",
+    requirements: ["KMU-Status", "Investition in digitale Technologien und/oder Qualifizierung"],
+    formatHints: "Investitionsplan + Digitalisierungsvorhaben; kein reines FuE.",
+  },
+  "bmel-agrar-innovation": {
+    summary: "Förderung von FuE-Vorhaben in Landwirtschaft, Ernährung und Bioökonomie.",
+    url: "https://www.bmel.de",
+    requirements: ["Bezug zu Agrar/Ernährung/Bioökonomie", "FuE-Charakter"],
+    formatHints: "FuE-Plan mit Bezug zur Bioökonomie; Nachhaltigkeitswirkung darstellen.",
+  },
+};
+GRANTS.forEach((g) => Object.assign(g, META[g.id] || {}));
+
 // Kompakte Repräsentation für den System-Prompt (spart Tokens, stabil cachebar).
 export function grantsForPrompt() {
   return GRANTS.map((g) => ({
@@ -216,6 +308,7 @@ export function grantsForPrompt() {
     focus: g.focus,
     eligibility: g.eligibility,
     notFor: g.notFor,
+    requirements: g.requirements,
   }));
 }
 
