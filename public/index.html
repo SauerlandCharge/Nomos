@@ -273,11 +273,13 @@ const PageShell = ({ children }) => <main className="anim-fadein mx-auto max-w-6
 function PageHero({ eyebrow, title, lede, children }) {
   return (
     <header className="relative overflow-hidden pb-2">
-      <div className="pointer-events-none absolute -right-16 -top-20 hidden opacity-50 md:block"><ArcMark size={420} color="#E2AC92" /></div>
-      <Eyebrow>{eyebrow}</Eyebrow>
-      <h1 className="mt-4 font-sans" style={{ fontSize:'clamp(38px,6vw,66px)', fontWeight:400, letterSpacing:'-0.04em', lineHeight:0.97 }}>{title}</h1>
-      {lede && <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-700">{lede}</p>}
-      {children}
+      <div className="pointer-events-none absolute -right-16 -top-20 z-0 hidden opacity-50 md:block"><ArcMark size={420} color="#E2AC92" /></div>
+      <div className="relative z-10">
+        <Eyebrow>{eyebrow}</Eyebrow>
+        <h1 className="mt-4 font-sans" style={{ fontSize:'clamp(38px,6vw,66px)', fontWeight:400, letterSpacing:'-0.04em', lineHeight:0.97 }}>{title}</h1>
+        {lede && <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-700">{lede}</p>}
+        {children}
+      </div>
     </header>
   );
 }
