@@ -12,6 +12,9 @@ import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, an
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const MODEL = process.env.NOMOS_MODEL || "claude-opus-4-7";
+// Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
+// veralteter lokaler Stand sofort auffällt.
+const VERSION = "2026-05-20.1";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -28,7 +31,12 @@ function client() {
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
-app.use(express.static(path.join(__dirname, "..", "public")));
+app.use(express.static(path.join(__dirname, "..", "public"), {
+  setHeaders(res, filePath) {
+    // HTML nie aus dem Browser-Cache bedienen — verhindert veraltete Ansichten.
+    if (filePath.endsWith(".html")) res.setHeader("Cache-Control", "no-store");
+  },
+}));
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -307,7 +315,7 @@ app.post("/api/generate", upload.single("document"), async (req, res) => {
 app.get("/api/grants", (_req, res) => res.json(GRANTS));
 
 app.get("/healthz", (_req, res) =>
-  res.json({ ok: true, model: MODEL, keyConfigured: !!process.env.ANTHROPIC_API_KEY }));
+  res.json({ ok: true, version: VERSION, model: MODEL, keyConfigured: !!process.env.ANTHROPIC_API_KEY }));
 
 // Generischer Text-Streamer (Server-Sent-ähnlich, aber plain chunked).
 async function streamText(res, { system, messages, max_tokens, effort }) {

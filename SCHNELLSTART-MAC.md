@@ -57,7 +57,24 @@ open http://localhost:3000
 ```
 curl http://localhost:3000/healthz
 ```
-→ `{"ok":true,...,"keyConfigured":true}` = Server läuft, Key erkannt.
+→ `{"ok":true,"version":"…",...,"keyConfigured":true}` = Server läuft, Key erkannt.
+Das `version`-Feld ist auch unten im Footer der App sichtbar („Build …").
+
+## Änderungen erscheinen nicht?
+Fast immer läuft dann ein **alter Stand**. So stellst du sicher, dass du das Neueste hast:
+1. **Footer-Version prüfen:** unten in der App steht „Build …" — gleicht sie nicht der neuesten, läuft alter Code.
+2. **Alten Ordner löschen:** ein vorhandenes `Nomos-main` (auch `Nomos-main 2` etc.) in *Downloads* komplett in den Papierkorb.
+3. **Frische ZIP:** auf GitHub Branch **main** wählen → **Code → Download ZIP**, neu entpacken.
+4. In den **neuen** Ordner `cd`, dann `npm install`, `.env` neu anlegen, `npm start`.
+5. **Hard-Refresh** im Browser: `⌘ + Shift + R` (oder privates Fenster).
+6. **Nur ein Server:** alte Terminal-Fenster mit `Control + C` beenden — sonst bedient ein alter Prozess Port 3000.
+
+## Wenn etwas klemmt
+- **`command not found: node`** → Node nicht installiert / Terminal nicht neu geöffnet (Schritt 2).
+- **Konsole „✗ KEIN API-Key"** → `.env` fehlt/leer oder falscher Ordner (Schritt 4/6).
+- **401 / Authentifizierung im UI** → Key ungültig (alten rotiert?) → neuen Key in `.env`.
+- **Port belegt** → `PORT=3001 npm start`, dann `http://localhost:3001`.
+- **Kosten:** ~0,30–0,60 € pro kompletter Durchlauf; günstiger mit `NOMOS_MODEL=claude-sonnet-4-6` in `.env`.
 
 ## Wenn etwas klemmt
 - **`command not found: node`** → Node nicht installiert / Terminal nicht neu geöffnet (Schritt 2).

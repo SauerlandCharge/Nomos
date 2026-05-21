@@ -106,6 +106,14 @@ function useModel() {
   }, []);
   return name;
 }
+// Build-Version aus dem Backend — macht einen veralteten lokalen Stand sichtbar.
+function useVersion() {
+  const [v, setV] = useState('');
+  useEffect(() => {
+    fetch('/healthz').then(r => r.json()).then(d => setV(d.version || '')).catch(() => {});
+  }, []);
+  return v;
+}
 
 /* ── Brand atoms ─────────────────────────────────────────────────────────── */
 function Wordmark({ size=26, color='var(--ink-900)' }) {
@@ -994,6 +1002,7 @@ function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
 }
 
 function Footer({ go, startPitch }) {
+  const build = useVersion();
   return (
     <footer className="no-print border-t border-cream-300 px-6 py-12 md:px-12">
       <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.3fr_0.8fr_1.2fr_0.9fr]">
@@ -1043,7 +1052,7 @@ function Footer({ go, startPitch }) {
       </div>
 
       <div className="mx-auto mt-8 flex max-w-6xl items-center justify-between border-t border-cream-300 pt-5">
-        <span className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>© 2026 Telos AI · powered by Nomos</span>
+        <span className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>© 2026 Telos AI · powered by Nomos{build ? ` · Build ${build}` : ''}</span>
         <NomosMark size={18} color="var(--ink-300)" />
       </div>
     </footer>);
