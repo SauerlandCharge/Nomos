@@ -8,13 +8,15 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { GRANTS, getGrantById } from "./grants.js";
 import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, antragSystem } from "./prompts.js";
+import { repo, dbKind } from "./db.js";
+import { hashPassword, verifyPassword, setSession, clearSession, attachUser, requireAuth, validEmail, publicUser } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const MODEL = process.env.NOMOS_MODEL || "claude-opus-4-7";
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-20.3";
+const VERSION = "2026-05-20.4";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -31,6 +33,7 @@ function client() {
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
+app.use("/api", attachUser);
 app.use(express.static(path.join(__dirname, "..", "public"), {
   setHeaders(res, filePath) {
     // HTML nie aus dem Browser-Cache bedienen — verhindert veraltete Ansichten.
@@ -373,10 +376,83 @@ app.post("/api/generate", upload.single("document"), async (req, res) => {
   }
 });
 
+// ── Auth & Konto ──────────────────────────────────────────────────────────
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { email, password, name } = req.body || {};
+    if (!validEmail(email)) return res.status(400).json({ error: "Bitte eine gültige E-Mail angeben." });
+    if (!password || password.length < 8) return res.status(400).json({ error: "Passwort muss mindestens 8 Zeichen haben." });
+    if (await repo.findUserByEmail(email.toLowerCase())) return res.status(409).json({ error: "Diese E-Mail ist bereits registriert." });
+    const user = await repo.createUser({ email: email.toLowerCase(), pw_hash: hashPassword(password), name });
+    setSession(res, user.id);
+    res.json({ user: publicUser(user) });
+  } catch (err) { sendError(res, err); }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    const user = email ? await repo.findUserByEmail(String(email).toLowerCase()) : null;
+    if (!user || !verifyPassword(password || "", user.pw_hash)) {
+      return res.status(401).json({ error: "E-Mail oder Passwort ist falsch." });
+    }
+    setSession(res, user.id);
+    res.json({ user: publicUser(user) });
+  } catch (err) { sendError(res, err); }
+});
+
+app.post("/api/auth/logout", (req, res) => { clearSession(res); res.json({ ok: true }); });
+
+app.get("/api/me", async (req, res) => {
+  const profile = req.user ? await repo.getProfile(req.user.id) : null;
+  res.json({ user: publicUser(req.user), profile });
+});
+
+app.post("/api/profile", requireAuth, async (req, res) => {
+  try {
+    const f = req.body || {};
+    const fields = {};
+    for (const k of ["company", "region", "branche", "stage", "website", "founders"]) {
+      if (typeof f[k] === "string") fields[k] = f[k].slice(0, 500);
+    }
+    const profile = await repo.upsertProfile(req.user.id, fields);
+    res.json({ profile });
+  } catch (err) { sendError(res, err); }
+});
+
+// ── Verlauf (Pitches & Anträge) ─────────────────────────────────────────────
+app.get("/api/pitches", requireAuth, async (req, res) => {
+  try { res.json({ pitches: await repo.listPitches(req.user.id) }); } catch (err) { sendError(res, err); }
+});
+app.get("/api/pitches/:id", requireAuth, async (req, res) => {
+  try {
+    const p = await repo.getPitch(req.params.id, req.user.id);
+    if (!p) return res.status(404).json({ error: "Nicht gefunden." });
+    res.json({ pitch: p });
+  } catch (err) { sendError(res, err); }
+});
+app.delete("/api/pitches/:id", requireAuth, async (req, res) => {
+  try { await repo.deletePitch(req.params.id, req.user.id); res.json({ ok: true }); } catch (err) { sendError(res, err); }
+});
+app.post("/api/pitches", requireAuth, async (req, res) => {
+  try {
+    const { projektname, pitch_text, analysis } = req.body || {};
+    const p = await repo.createPitch(req.user.id, { projektname, pitch_text, analysis });
+    res.json({ id: p.id });
+  } catch (err) { sendError(res, err); }
+});
+app.post("/api/antraege", requireAuth, async (req, res) => {
+  try {
+    const { pitch_id, grant_id, grant_name, content } = req.body || {};
+    const a = await repo.createAntrag(req.user.id, { pitch_id, grant_id, grant_name, content });
+    res.json({ id: a.id });
+  } catch (err) { sendError(res, err); }
+});
+
 app.get("/api/grants", (_req, res) => res.json(GRANTS));
 
 app.get("/healthz", (_req, res) =>
-  res.json({ ok: true, version: VERSION, model: MODEL, keyConfigured: !!process.env.ANTHROPIC_API_KEY }));
+  res.json({ ok: true, version: VERSION, model: MODEL, keyConfigured: !!process.env.ANTHROPIC_API_KEY, db: dbKind() }));
 
 // Generischer Text-Streamer (Server-Sent-ähnlich, aber plain chunked).
 async function streamText(res, { system, messages, max_tokens, effort }) {
@@ -429,5 +505,6 @@ function sendError(res, err) {
 app.listen(PORT, () => {
   const keyState = process.env.ANTHROPIC_API_KEY ? "✓ API-Key gefunden" : "✗ KEIN API-Key (siehe .env.example)";
   console.log(`\n  Telos · Nomos läuft auf http://localhost:${PORT}`);
-  console.log(`  Modell: ${MODEL}   ${keyState}\n`);
+  console.log(`  Modell: ${MODEL}   ${keyState}`);
+  console.log(`  Speicher: ${dbKind() === "postgres" ? "PostgreSQL (DATABASE_URL)" : "lokale JSON-Datei (data/store.json)"}\n`);
 });
