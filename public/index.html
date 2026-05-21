@@ -156,6 +156,21 @@ function useSpeech(onText) {
   return { supported: !!SR, listening, toggle };
 }
 
+// Wiederverwendbarer Mikrofon-Button — überall dort, wo Text eingegeben wird.
+function MicButton({ onText, className = '' }) {
+  const s = useSpeech(onText);
+  if (!s.supported) return null;
+  return (
+    <button type="button" onClick={s.toggle} title={s.listening ? 'Aufnahme stoppen' : 'Per Sprache diktieren'}
+      className={"relative flex h-9 w-9 flex-none items-center justify-center rounded-full transition-colors "+(s.listening ? 'bg-terracotta text-cream-50' : 'border border-cream-400 text-ink-700 hover:border-ink-900')+' '+className}>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 19v3" />
+      </svg>
+      {s.listening && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-honey dot-pulse" />}
+    </button>
+  );
+}
+
 /* ── Brand atoms ─────────────────────────────────────────────────────────── */
 function Wordmark({ size=26, color='var(--ink-900)' }) {
   return <span style={{ fontFamily:"'Geist',sans-serif", fontSize:size, fontWeight:500, letterSpacing:'-0.055em', color, lineHeight:0.85 }}>Telos</span>;
@@ -208,7 +223,7 @@ const PageShell = ({ children }) => <main className="anim-fadein mx-auto max-w-6
 function PageHero({ eyebrow, title, lede, children }) {
   return (
     <header className="relative overflow-hidden pb-2">
-      <div className="pointer-events-none absolute -right-16 -top-20 hidden opacity-[0.05] md:block"><ArcMark size={420} color="var(--ink-900)" /></div>
+      <div className="pointer-events-none absolute -right-16 -top-20 hidden opacity-50 md:block"><ArcMark size={420} color="#E2AC92" /></div>
       <Eyebrow>{eyebrow}</Eyebrow>
       <h1 className="mt-4 font-sans" style={{ fontSize:'clamp(38px,6vw,66px)', fontWeight:400, letterSpacing:'-0.04em', lineHeight:0.97 }}>{title}</h1>
       {lede && <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-700">{lede}</p>}
@@ -783,7 +798,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-cream-100">
-      <Nav page={page} go={go} onLogo={()=>setPage('home')} startPitch={startPitch} auth={auth} onLogin={requireLogin} />
+      <Nav page={page} go={go} onLogo={()=>{setPage('home');setView('landing');}} startPitch={startPitch} auth={auth} onLogin={requireLogin} />
       {page==='verlauf' ? <Verlauf auth={auth} onLogin={requireLogin} openPitch={openPitch} />
         : page==='profil' ? <Profil auth={auth} onLogin={requireLogin} />
         : page !== 'home'
@@ -877,6 +892,10 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
             Förderlinien und schreibt 80&nbsp;% des Antrags in formellem Behördendeutsch.
           </p>
           <div className="mt-9 rounded-3xl border border-cream-300 bg-cream-50 p-5">
+            <div className="mb-3 flex items-start gap-2 rounded-xl bg-cream-200 px-3 py-2">
+              <NomosMark size={15} color="var(--ink-900)" />
+              <p className="text-xs leading-relaxed text-ink-700">Nomos sucht auf Basis deiner Idee / deines Businessplans passende Förderungen für dich.</p>
+            </div>
             <Eyebrow>SCHRITT 1 · DEIN VORHABEN</Eyebrow>
             <input value={proj} onChange={e=>setProj(e.target.value)} placeholder="Projektname (optional — Nomos erkennt ihn sonst)"
               className="mt-3 w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 text-sm font-medium outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
@@ -1056,9 +1075,12 @@ function FollowupPanel({ analysis, onUpdate }) {
               <div key={i}>
                 <div className="text-sm font-medium text-ink-900">{q.frage}</div>
                 <div className="brand-mono mt-0.5 text-ink-500" style={{ fontSize:10, letterSpacing:'0.06em' }}>WARUM: {q.warum}</div>
-                <input value={answers[i]||''} onChange={e=>setAnswers(a=>({...a,[i]:e.target.value}))} disabled={phase==='rescoring'}
-                  placeholder="Deine Antwort …"
-                  className="mt-2 w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-2.5 text-sm outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900 disabled:opacity-60" />
+                <div className="mt-2 flex items-center gap-2">
+                  <input value={answers[i]||''} onChange={e=>setAnswers(a=>({...a,[i]:e.target.value}))} disabled={phase==='rescoring'}
+                    placeholder="Deine Antwort … (tippen oder diktieren)"
+                    className="w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-2.5 text-sm outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900 disabled:opacity-60" />
+                  <MicButton onText={(t)=>setAnswers(a=>({...a,[i]:((a[i]||'').trim()? a[i].trim()+' ':'')+t}))} />
+                </div>
               </div>))}
           </div>
           <div className="mt-4 flex items-center gap-3">

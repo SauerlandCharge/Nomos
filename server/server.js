@@ -14,10 +14,16 @@ import { hashPassword, verifyPassword, setSession, clearSession, attachUser, req
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
-const MODEL = process.env.NOMOS_MODEL || "claude-opus-4-7";
+// Gemischte Modelle: deep = stark (Analyse/Antrag/Businessplan), fast = schnell
+// (Rückfragen/Compliance/Checklisten/URL-Auflösung). Beide per Env überschreibbar.
+const MODELS = {
+  deep: process.env.NOMOS_MODEL || "claude-sonnet-4-6",
+  fast: process.env.NOMOS_MODEL_FAST || "claude-haiku-4-5",
+};
+const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-20.6";
+const VERSION = "2026-05-21.1";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -160,7 +166,7 @@ app.post("/api/followup", async (req, res) => {
       `Erkannte Lücken: ${(analysis.luecken || []).join("; ")}`;
 
     const stream = client().messages.stream({
-      model: MODEL,
+      model: MODELS.fast,
       max_tokens: 4000,
       thinking: { type: "adaptive" },
       output_config: { effort: "medium", format: { type: "json_schema", schema: FOLLOWUP_SCHEMA } },
@@ -321,7 +327,8 @@ app.post("/api/translate", async (req, res) => {
     await streamText(res, {
       system: [{ type: "text", text: TRANSLATE_SYSTEM, cache_control: { type: "ephemeral" } }],
       max_tokens: 2000,
-      effort: "medium",
+      effort: "low",
+      model: MODELS.fast,
       messages: [{ role: "user", content: `Übersetze in Behördendeutsch:\n\n${text}` }],
     });
   } catch (err) {
@@ -360,8 +367,10 @@ app.post("/api/generate", upload.single("document"), async (req, res) => {
 
     await streamText(res, {
       system: [{ type: "text", text: antragSystem(grant), cache_control: { type: "ephemeral" } }],
-      max_tokens: 16000,
-      effort: "high",
+      max_tokens: 32000,
+      effort: "medium",
+      model: MODELS.deep,
+      continue: true,
       messages: [
         {
           role: "user",
@@ -473,7 +482,7 @@ app.post("/api/compliance", async (req, res) => {
     if (!content || !String(content).trim()) return res.status(400).json({ error: "Kein Entwurf zum Prüfen." });
 
     const stream = client().messages.stream({
-      model: MODEL,
+      model: MODELS.fast,
       max_tokens: 4000,
       thinking: { type: "adaptive" },
       output_config: { effort: "medium", format: { type: "json_schema", schema: COMPLIANCE_SCHEMA } },
@@ -491,37 +500,48 @@ app.post("/api/compliance", async (req, res) => {
 app.get("/api/grants", (_req, res) => res.json(GRANTS));
 
 app.get("/healthz", (_req, res) =>
-  res.json({ ok: true, version: VERSION, model: MODEL, keyConfigured: !!process.env.ANTHROPIC_API_KEY, db: dbKind() }));
+  res.json({ ok: true, version: VERSION, model: MODELS.deep, modelFast: MODELS.fast, keyConfigured: !!process.env.ANTHROPIC_API_KEY, db: dbKind() }));
 
 // Generischer Text-Streamer (Server-Sent-ähnlich, aber plain chunked).
-async function streamText(res, { system, messages, max_tokens, effort }) {
+async function streamText(res, { system, messages, max_tokens, effort, model, continue: cont }) {
   // Client VOR dem Senden der Header holen, damit ein fehlender Key als
   // sauberes JSON-503 (statt leerem 200) zurückkommt.
   const c = client();
+  const useModel = model || MODEL;
 
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
-  const stream = c.messages.stream({
-    model: MODEL,
-    max_tokens,
-    thinking: { type: "adaptive" },
-    output_config: { effort },
-    system,
-    messages,
-  });
-
-  // Bricht der Client/Proxy ab (z. B. während langer adaptive-thinking-Phasen),
-  // wird die Anthropic-Anfrage sauber gestoppt — kein hängender Handler, keine
-  // verschwendeten Tokens.
   let aborted = false;
-  res.on("close", () => { if (!res.writableEnded) { aborted = true; try { stream.abort(); } catch {} } });
+  res.on("close", () => { if (!res.writableEnded) aborted = true; });
 
-  stream.on("text", (delta) => { if (!aborted) res.write(delta); });
+  // Konversation lokal halten, um bei stop_reason="max_tokens" nahtlos
+  // fortzusetzen (verhindert Abbruch mitten im Satz).
+  const convo = [...messages];
+  const maxContinuations = cont ? 3 : 0;
+
   try {
-    await stream.finalMessage();
+    for (let i = 0; i <= maxContinuations; i++) {
+      const stream = c.messages.stream({
+        model: useModel,
+        max_tokens,
+        thinking: { type: "adaptive" },
+        output_config: { effort },
+        system,
+        messages: convo,
+      });
+      res.on("close", () => { try { stream.abort(); } catch {} });
+      stream.on("text", (delta) => { if (!aborted) res.write(delta); });
+      const final = await stream.finalMessage();
+      if (aborted) return;
+      if (final.stop_reason !== "max_tokens" || i === maxContinuations) break;
+      // Fortsetzung anstoßen: bisherigen Output als Assistant-Turn anhängen.
+      const soFar = final.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+      convo.push({ role: "assistant", content: soFar });
+      convo.push({ role: "user", content: "Setze den vorherigen Text exakt dort fort, wo du aufgehört hast — ohne Wiederholung, ohne Vorrede." });
+    }
     if (!aborted) res.end();
   } catch (err) {
     if (aborted) return; // bewusster Abbruch — keine Fehlerausgabe nötig
@@ -544,6 +564,6 @@ function sendError(res, err) {
 app.listen(PORT, () => {
   const keyState = process.env.ANTHROPIC_API_KEY ? "✓ API-Key gefunden" : "✗ KEIN API-Key (siehe .env.example)";
   console.log(`\n  Telos · Nomos läuft auf http://localhost:${PORT}`);
-  console.log(`  Modell: ${MODEL}   ${keyState}`);
+  console.log(`  Modelle: deep=${MODELS.deep} · fast=${MODELS.fast}   ${keyState}`);
   console.log(`  Speicher: ${dbKind() === "postgres" ? "PostgreSQL (DATABASE_URL)" : "lokale JSON-Datei (data/store.json)"}\n`);
 });
