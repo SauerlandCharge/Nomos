@@ -114,6 +114,30 @@ function useVersion() {
   }, []);
   return v;
 }
+// Auth-Zustand (E-Mail/Passwort; Cookie-Session). Cookies gehen same-origin automatisch mit.
+function useAuth() {
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [ready, setReady] = useState(false);
+  async function refresh() {
+    try { const r = await fetch('/api/me'); const d = await r.json(); setUser(d.user); setProfile(d.profile); } catch {}
+    setReady(true);
+  }
+  useEffect(() => { refresh(); }, []);
+  async function login(email, password) {
+    const r = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, password }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Login fehlgeschlagen');
+    setUser(d.user); await refresh();
+  }
+  async function register(email, password, name) {
+    const r = await fetch('/api/auth/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, password, name }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Registrierung fehlgeschlagen');
+    setUser(d.user); await refresh();
+  }
+  async function logout() { try { await fetch('/api/auth/logout', { method:'POST' }); } catch {} setUser(null); setProfile(null); }
+  return { user, profile, ready, login, register, logout, refresh, setProfile };
+}
+
 // Spracheingabe via Web Speech API (Chrome/Safari). Fällt sauber zurück, wenn nicht unterstützt.
 function useSpeech(onText) {
   const recRef = useRef(null);
@@ -568,6 +592,135 @@ function FaqItem({ q, a }) {
   );
 }
 
+/* ── Auth-UI: Modal, Konto-Menü, Verlauf, Profil ──────────────────────────── */
+function AuthModal({ open, onClose, auth }) {
+  const [mode, setMode] = useState('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!open) return null;
+  async function submit(e) {
+    e.preventDefault(); setErr(''); setBusy(true);
+    try {
+      if (mode === 'login') await auth.login(email, password);
+      else await auth.register(email, password, name);
+      onClose();
+    } catch (e2) { setErr(e2.message); }
+    setBusy(false);
+  }
+  return (
+    <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4" onClick={onClose}>
+      <div className="anim-fadeup w-full max-w-md rounded-3xl border border-cream-300 bg-cream-50 p-7" onClick={(e)=>e.stopPropagation()}>
+        <div className="flex items-center gap-3"><TelosLockup size={22} /><span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.18em' }}>· KONTO</span></div>
+        <h2 className="mt-4 font-sans" style={{ fontSize:24, fontWeight:500, letterSpacing:'-0.02em' }}>{mode==='login' ? 'Anmelden' : 'Konto erstellen'}</h2>
+        <p className="mt-1 text-sm text-ink-700">{mode==='login' ? 'Melde dich an, um deinen Verlauf zu sehen.' : 'Speichere Pitches & Anträge in deinem Konto.'}</p>
+        <form onSubmit={submit} className="mt-5 flex flex-col gap-3">
+          {mode==='register' && <input value={name} onChange={e=>setName(e.target.value)} placeholder="Name (optional)" className="w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 text-sm outline-none focus:border-ink-900" />}
+          <input value={email} onChange={e=>setEmail(e.target.value)} type="email" autoComplete="email" placeholder="E-Mail" className="w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 text-sm outline-none focus:border-ink-900" />
+          <input value={password} onChange={e=>setPassword(e.target.value)} type="password" autoComplete={mode==='login'?'current-password':'new-password'} placeholder={mode==='login'?'Passwort':'Passwort (min. 8 Zeichen)'} className="w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 text-sm outline-none focus:border-ink-900" />
+          {err && <div className="rounded-xl border border-terracotta/40 bg-terracotta/10 px-4 py-2.5 text-sm text-ink-900">{err}</div>}
+          <button disabled={busy} className="mt-1 rounded-full bg-ink-900 px-5 py-3 text-sm font-medium text-cream-100 transition-transform enabled:hover:scale-[1.02] disabled:opacity-50">{busy ? 'Bitte warten …' : (mode==='login' ? 'Anmelden' : 'Registrieren')}</button>
+        </form>
+        <div className="mt-4 text-center text-sm text-ink-700">
+          {mode==='login' ? 'Noch kein Konto?' : 'Schon registriert?'}{' '}
+          <button onClick={()=>{ setErr(''); setMode(mode==='login'?'register':'login'); }} className="font-medium text-terracotta hover:underline">{mode==='login' ? 'Registrieren' : 'Anmelden'}</button>
+        </div>
+        <p className="mt-4 brand-mono text-ink-300" style={{ fontSize:9, letterSpacing:'0.1em' }}>Daten liegen nur in deinem Konto und sind jederzeit löschbar.</p>
+      </div>
+    </div>
+  );
+}
+
+function AccountMenu({ auth, onLogin, go }) {
+  const [open, setOpen] = useState(false);
+  if (!auth.user) {
+    return <button onClick={onLogin} className="hidden text-sm text-ink-700 transition-colors hover:text-ink-900 sm:inline">Anmelden</button>;
+  }
+  const initial = (auth.user.name || auth.user.email || '?').trim().charAt(0).toUpperCase();
+  return (
+    <div className="relative">
+      <button onClick={()=>setOpen(o=>!o)} className="flex h-9 w-9 items-center justify-center rounded-full bg-ink-900 text-sm font-medium text-cream-100">{initial}</button>
+      {open && (
+        <div className="anim-fadein absolute right-0 mt-2 w-52 rounded-2xl border border-cream-300 bg-cream-50 p-2 shadow-[0_14px_36px_-16px_rgba(40,30,20,0.4)]" onMouseLeave={()=>setOpen(false)}>
+          <div className="truncate px-3 py-2 text-sm text-ink-500">{auth.user.email}</div>
+          <button onClick={()=>{ go('verlauf'); setOpen(false); }} className="w-full rounded-lg px-3 py-2 text-left text-sm text-ink-900 hover:bg-cream-200">Mein Verlauf</button>
+          <button onClick={()=>{ go('profil'); setOpen(false); }} className="w-full rounded-lg px-3 py-2 text-left text-sm text-ink-900 hover:bg-cream-200">Profil</button>
+          <button onClick={()=>{ auth.logout(); setOpen(false); go('home'); }} className="w-full rounded-lg px-3 py-2 text-left text-sm text-terracotta hover:bg-cream-200">Abmelden</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Verlauf({ auth, onLogin, openPitch }) {
+  const [pitches, setPitches] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    if (!auth.user) return;
+    fetch('/api/pitches').then(r=>r.json()).then(d=>setPitches(d.pitches||[])).catch(()=>setErr('Konnte Verlauf nicht laden.'));
+  }, [auth.user]);
+  return (
+    <PageShell>
+      <PageHero eyebrow="MEIN VERLAUF" title={<>Deine <em className="brand-serif italic" style={{ fontWeight:400 }}>Pitches</em>.</>} lede="Alle gespeicherten Analysen — jederzeit erneut aufrufbar." />
+      {!auth.user
+        ? <div className="mt-8 rounded-3xl border border-cream-300 bg-cream-50 p-6"><p className="text-sm text-ink-700">Bitte melde dich an, um deinen Verlauf zu sehen.</p><button onClick={onLogin} className="mt-3 rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100">Anmelden</button></div>
+        : err ? <div className="mt-8 text-sm text-ink-700">{err}</div>
+        : pitches===null ? <div className="mt-8"><SkeletonRows n={3} /></div>
+        : pitches.length===0 ? <div className="mt-8 rounded-3xl border border-cream-300 bg-cream-50 p-6 text-sm text-ink-700">Noch nichts gespeichert. Lade einen Pitch hoch — eingeloggt wird er automatisch hier abgelegt.</div>
+        : <div className="mt-8 flex flex-col gap-2.5">{pitches.map(p=>(
+            <button key={p.id} onClick={()=>openPitch(p.id)} className="rounded-2xl border border-cream-300 bg-cream-50 p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_30px_-16px_rgba(40,30,20,0.35)]">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[15px] font-medium text-ink-900">{p.projektname || 'Unbenanntes Vorhaben'}</span>
+                <span className="brand-mono text-ink-500" style={{ fontSize:10 }}>{new Date(p.created_at).toLocaleDateString('de-DE')}</span>
+              </div>
+            </button>))}</div>}
+    </PageShell>
+  );
+}
+
+function Profil({ auth, onLogin }) {
+  const [f, setF] = useState({ company:'', region:'', branche:'', stage:'', website:'', founders:'' });
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (auth.profile) setF((x)=>({ ...x, ...auth.profile })); }, [auth.profile]);
+  async function save() {
+    setBusy(true); setSaved(false);
+    try {
+      const r = await fetch('/api/profile', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(f) });
+      const d = await r.json(); if (r.ok) { auth.setProfile(d.profile); setSaved(true); }
+    } catch {}
+    setBusy(false);
+  }
+  const field = (key, label, ph) => (
+    <div>
+      <label className="brand-mono uppercase text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>{label}</label>
+      <input value={f[key]||''} onChange={e=>{ setF(x=>({...x,[key]:e.target.value})); setSaved(false); }} placeholder={ph}
+        className="mt-1 w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-2.5 text-sm outline-none focus:border-ink-900" />
+    </div>
+  );
+  return (
+    <PageShell>
+      <PageHero eyebrow="PROFIL" title={<>Dein <em className="brand-serif italic" style={{ fontWeight:400 }}>Profil</em>.</>} lede="Diese Angaben helfen Nomos, künftige Analysen besser einzuordnen." />
+      {!auth.user
+        ? <div className="mt-8 rounded-3xl border border-cream-300 bg-cream-50 p-6"><p className="text-sm text-ink-700">Bitte melde dich an, um dein Profil zu bearbeiten.</p><button onClick={onLogin} className="mt-3 rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100">Anmelden</button></div>
+        : <div className="mt-8 grid max-w-2xl gap-4 rounded-3xl border border-cream-300 bg-cream-50 p-6 sm:grid-cols-2">
+            {field('company','Firma/Vorhaben','z. B. Telos GmbH')}
+            {field('region','Region/Sitz','z. B. Bayern')}
+            {field('branche','Branche','z. B. Energie')}
+            {field('stage','Phase','z. B. Pre-Seed')}
+            {field('website','Website','https://…')}
+            {field('founders','Gründer:innen','Namen, Qualifikationen')}
+            <div className="sm:col-span-2 flex items-center gap-3">
+              <button onClick={save} disabled={busy} className="rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100 transition-transform enabled:hover:scale-[1.02] disabled:opacity-50">{busy?'Speichert …':'Profil speichern'}</button>
+              {saved && <span className="text-sm text-cobalt">✓ gespeichert</span>}
+            </div>
+          </div>}
+    </PageShell>
+  );
+}
+
 /* ── App shell ───────────────────────────────────────────────────────────── */
 function App() {
   const [view, setView] = useState('landing');
@@ -577,9 +730,12 @@ function App() {
   const [analysis, setAnalysis] = useState(null);
   const [selected, setSelected] = useState(null);
   const [error, setError] = useState('');
+  const [pitchId, setPitchId] = useState(null);
+  const auth = useAuth();
+  const [authOpen, setAuthOpen] = useState(false);
 
   async function analyze() {
-    setError('');
+    setError(''); setPitchId(null);
     setView('analyze');
     try {
       const fd = new FormData();
@@ -590,40 +746,63 @@ function App() {
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || `Fehler ${res.status}`); }
       const data = await res.json();
       setAnalysis(data);
+      const pname = proj.trim() || data.projektname || '';
       if (!proj.trim() && data.projektname) setProj(data.projektname);
       setView('dashboard');
+      // Eingeloggt → automatisch im Verlauf speichern.
+      if (auth.user) {
+        try {
+          const r = await fetch('/api/pitches', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ projektname: pname, pitch_text: pitch.trim(), analysis: data }) });
+          const d = await r.json(); if (r.ok) setPitchId(d.id);
+        } catch {}
+      }
     } catch (e) {
       setError(e.message);
       setView('landing');
     }
   }
 
+  async function openPitch(id) {
+    try {
+      const r = await fetch('/api/pitches/' + id); const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Konnte Pitch nicht laden');
+      const p = d.pitch;
+      setProj(p.projektname || ''); setPitch(p.pitch_text || ''); setFile(null);
+      setAnalysis(p.analysis || {}); setPitchId(p.id); setSelected(null);
+      setPage('home'); setView('dashboard');
+    } catch (e) { setError(e.message); }
+  }
+
   const [page, setPage] = useState('home');
-  function reset() { setView('landing'); setSelected(null); setAnalysis(null); setError(''); }
+  function reset() { setView('landing'); setSelected(null); setAnalysis(null); setError(''); setPitchId(null); }
   function go(p) { setPage(p); }
   function startPitch() { setPage('home'); setView('landing'); }
+  function requireLogin() { setAuthOpen(true); }
 
   useEffect(() => { window.scrollTo({ top:0, behavior:'instant' }); }, [page, view]);
 
   return (
     <div className="min-h-screen bg-cream-100">
-      <Nav page={page} go={go} onLogo={()=>setPage('home')} startPitch={startPitch} />
-      {page !== 'home'
+      <Nav page={page} go={go} onLogo={()=>setPage('home')} startPitch={startPitch} auth={auth} onLogin={requireLogin} />
+      {page==='verlauf' ? <Verlauf auth={auth} onLogin={requireLogin} openPitch={openPitch} />
+        : page==='profil' ? <Profil auth={auth} onLogin={requireLogin} />
+        : page !== 'home'
         ? <Marketing page={page} go={go} startPitch={startPitch} />
         : <>
             {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} />}
             {view==='analyze'   && <Analyzing proj={proj} />}
             {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis}} onUpdate={setAnalysis} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
-            {view==='antrag'    && <Antrag {...{proj,pitch,file,grant:selected}} onBack={()=>setView('dashboard')} onReset={reset} />}
+            {view==='antrag'    && <Antrag {...{proj,pitch,file,grant:selected,pitchId,loggedIn:!!auth.user}} onBack={()=>setView('dashboard')} onReset={reset} />}
           </>}
       <Footer go={go} startPitch={startPitch} />
+      <AuthModal open={authOpen} onClose={()=>setAuthOpen(false)} auth={auth} />
     </div>
   );
 }
 
 const NAV_ITEMS = [['Produkt','produkt'],['Nomos-Engine','engine'],['Förderlinien','foerderlinien'],['Preise','preise']];
 
-function Nav({ page, go, onLogo, startPitch }) {
+function Nav({ page, go, onLogo, startPitch, auth, onLogin }) {
   const [open, setOpen] = useState(false);
   const navTo = (p) => { go(p); setOpen(false); };
   return (
@@ -642,6 +821,7 @@ function Nav({ page, go, onLogo, startPitch }) {
           ))}
         </nav>
         <div className="flex items-center gap-2">
+          <AccountMenu auth={auth} onLogin={onLogin} go={go} />
           <button onClick={startPitch} className="rounded-full bg-ink-900 px-4 py-2 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Pitch hochladen →</button>
           <button onClick={()=>setOpen(o=>!o)} aria-label="Menü" className="flex h-9 w-9 items-center justify-center rounded-full border border-cream-400 text-ink-900 md:hidden">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -660,6 +840,14 @@ function Nav({ page, go, onLogo, startPitch }) {
               {l}
             </button>
           ))}
+          <div className="my-1 h-px bg-cream-300" />
+          {auth.user
+            ? <>
+                <button onClick={()=>navTo('verlauf')} className="rounded-lg px-3 py-2.5 text-left text-sm text-ink-700 hover:bg-cream-50">Mein Verlauf</button>
+                <button onClick={()=>navTo('profil')} className="rounded-lg px-3 py-2.5 text-left text-sm text-ink-700 hover:bg-cream-50">Profil</button>
+                <button onClick={()=>{ auth.logout(); navTo('home'); }} className="rounded-lg px-3 py-2.5 text-left text-sm text-terracotta hover:bg-cream-50">Abmelden</button>
+              </>
+            : <button onClick={()=>{ onLogin(); setOpen(false); }} className="rounded-lg px-3 py-2.5 text-left text-sm text-ink-700 hover:bg-cream-50">Anmelden</button>}
         </nav>
       )}
     </header>
@@ -720,7 +908,7 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
             </div>
             {speech.listening && <p className="mt-1.5 brand-mono text-terracotta" style={{ fontSize:10, letterSpacing:'0.1em' }}>● HÖRT ZU … sprich deine Idee ein</p>}
 
-            <p className="mt-2 text-xs leading-relaxed text-ink-500">🔒 Sicheres Upload: Deine Dokumente werden nach der Analyse nicht serverseitig gespeichert.</p>
+            <p className="mt-2 text-xs leading-relaxed text-ink-500">🔒 Ohne Konto wird nichts gespeichert. Mit Konto werden Analyse & Eingaben nur in deinem Konto abgelegt (jederzeit löschbar); hochgeladene Dateien werden nicht dauerhaft gespeichert.</p>
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>BEISPIELE:</span>
@@ -1089,10 +1277,11 @@ function Panel({ label, dark, children }) {
 }
 
 /* ── Antrag (streaming) ─────────────────────────────────────────────────── */
-function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
+function Antrag({ proj, pitch, file, grant, pitchId, loggedIn, onBack, onReset }) {
   const [text, setText] = useState('');
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
   const startedRef = useRef(false);
 
   useEffect(() => {
@@ -1109,8 +1298,17 @@ function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
         if (!res.ok && res.headers.get('content-type')?.includes('application/json')) {
           const e = await res.json().catch(()=>({})); throw new Error(e.error || `Fehler ${res.status}`);
         }
-        await readStream(res, (chunk)=>setText(t=>t+chunk));
+        let full = '';
+        await readStream(res, (chunk)=>{ full += chunk; setText(t=>t+chunk); });
         setDone(true);
+        // Eingeloggt → Antrag im Verlauf speichern.
+        if (loggedIn && pitchId && full.trim()) {
+          try {
+            await fetch('/api/antraege', { method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ pitch_id: pitchId, grant_id: grant.id || '', grant_name: grant.name || '', content: full }) });
+            setSaved(true);
+          } catch {}
+        }
       } catch (e) { setError(e.message); setDone(true); }
     })();
   }, []);
@@ -1159,7 +1357,7 @@ function Antrag({ proj, pitch, file, grant, onBack, onReset }) {
         <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
           {done ? <div className="h-full rounded-full bg-honey" style={{ width:'80%' }} /> : <div className="relative h-full w-full"><div className="indet" /></div>}
         </div>
-        {done && !error && <p className="anim-fadein mt-3 text-sm leading-relaxed text-cream-300">Die verbleibenden ~20 % (persönliche Angaben, rechtsverbindliche Erklärungen, Unterschriften, Anlagen) ergänzt du selbst. Mit „[BITTE ERGÄNZEN]“ markierte Stellen brauchen deinen Input.</p>}
+        {done && !error && <p className="anim-fadein mt-3 text-sm leading-relaxed text-cream-300">Die verbleibenden ~20 % (persönliche Angaben, rechtsverbindliche Erklärungen, Unterschriften, Anlagen) ergänzt du selbst. Mit „[BITTE ERGÄNZEN]“ markierte Stellen brauchen deinen Input.{saved && ' · ✓ in deinem Verlauf gespeichert'}</p>}
         {error && <p className="mt-3 text-sm text-honey">Fehler: {error}</p>}
       </div>
 
@@ -1234,9 +1432,9 @@ function Footer({ go, startPitch }) {
         <div className="flex items-start gap-3">
           <span className="text-base leading-none">🔒</span>
           <p className="text-sm leading-relaxed text-ink-700">
-            <span className="font-medium text-ink-900">Datenschutz:</span> TLS-verschlüsselte Übertragung · Dokumente werden nach der
-            Analyse nicht serverseitig gespeichert · Inhalte werden laut Anthropics Geschäftsbedingungen nicht zum Training der
-            KI-Modelle verwendet · auf DSGVO-Konformität ausgelegt.
+            <span className="font-medium text-ink-900">Datenschutz:</span> TLS-verschlüsselte Übertragung · ohne Konto wird nichts gespeichert,
+            mit Konto liegen Analyse & Eingaben nur in deinem Konto (jederzeit löschbar) · hochgeladene Dateien werden nicht dauerhaft
+            gespeichert · Inhalte werden laut Anthropics Geschäftsbedingungen nicht zum Training der KI-Modelle verwendet · auf DSGVO-Konformität ausgelegt.
           </p>
         </div>
       </div>
