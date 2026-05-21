@@ -1321,14 +1321,38 @@ function Antrag({ proj, pitch, file, grant, pitchId, loggedIn, onBack, onReset }
   }, [text]);
 
   const [editing, setEditing] = useState(false);
+  const [docxBusy, setDocxBusy] = useState(false);
+  const [comp, setComp] = useState(null);     // {gesamt, items} | null
+  const [compBusy, setCompBusy] = useState(false);
+  const [compErr, setCompErr] = useState('');
   function copy(){ navigator.clipboard?.writeText(text); }
-  function download(){
-    const blob = new Blob([text], { type:'text/markdown;charset=utf-8' });
-    const u = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = u; a.download = (proj || 'Foerderantrag').replace(/[^\w]+/g,'_') + '.md';
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
+  function triggerDownload(blob, name){
+    const u = URL.createObjectURL(blob); const a = document.createElement('a');
+    a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
   }
+  function download(){
+    triggerDownload(new Blob([text], { type:'text/markdown;charset=utf-8' }), (proj || 'Foerderantrag').replace(/[^\w]+/g,'_') + '.md');
+  }
+  async function downloadDocx(){
+    setDocxBusy(true);
+    try {
+      const res = await fetch('/api/export', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ content: text, projektname: proj || grant.name }) });
+      if (!res.ok) throw new Error('Export fehlgeschlagen');
+      triggerDownload(await res.blob(), (proj || 'Foerderantrag').replace(/[^\w]+/g,'_') + '.docx');
+    } catch {}
+    setDocxBusy(false);
+  }
+  async function checkCompliance(){
+    setCompBusy(true); setCompErr(''); setComp(null);
+    try {
+      const body = grant.live ? { grant: JSON.stringify(grant), content: text } : { grantId: grant.id, content: text };
+      const res = await fetch('/api/compliance', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const d = await res.json(); if (!res.ok) throw new Error(d.error || ('Fehler '+res.status));
+      setComp(d);
+    } catch (e) { setCompErr(e.message); }
+    setCompBusy(false);
+  }
+  const compColor = (s) => /erf[üu]llt/i.test(s) ? 'var(--cobalt)' : /teil/i.test(s) ? 'var(--honey)' : 'var(--terracotta)';
 
   return (
     <main className="anim-fadein mx-auto max-w-4xl px-6 pb-24 pt-8 md:px-12">
@@ -1343,9 +1367,10 @@ function Antrag({ proj, pitch, file, grant, pitchId, loggedIn, onBack, onReset }
         <div className="flex items-center gap-2">
           <button onClick={onBack} className="rounded-full border border-cream-400 px-4 py-2 text-sm text-ink-900 transition-colors hover:border-ink-900">← Förderlinien</button>
           <button onClick={()=>setEditing(e=>!e)} disabled={!done} className={"rounded-full px-4 py-2 text-sm transition-colors disabled:opacity-40 "+(editing?'bg-terracotta text-cream-50':'border border-cream-400 text-ink-900 enabled:hover:border-ink-900')}>{editing?'Vorschau':'Bearbeiten'}</button>
+          <button onClick={downloadDocx} disabled={!done||docxBusy} className="rounded-full border border-cream-400 px-4 py-2 text-sm text-ink-900 transition-colors enabled:hover:border-ink-900 disabled:opacity-40">{docxBusy?'… .docx':'⬇ .docx'}</button>
           <button onClick={download} disabled={!done} className="rounded-full border border-cream-400 px-4 py-2 text-sm text-ink-900 transition-colors enabled:hover:border-ink-900 disabled:opacity-40">⬇ .md</button>
           <button onClick={copy} disabled={!done} className="rounded-full border border-cream-400 px-4 py-2 text-sm text-ink-900 transition-colors enabled:hover:border-ink-900 disabled:opacity-40">Kopieren</button>
-          <button onClick={()=>window.print()} disabled={!done} className="rounded-full bg-ink-900 px-4 py-2 text-sm font-medium text-cream-100 transition-all enabled:hover:scale-[1.03] disabled:opacity-30">Als PDF exportieren</button>
+          <button onClick={()=>window.print()} disabled={!done} className="rounded-full bg-ink-900 px-4 py-2 text-sm font-medium text-cream-100 transition-all enabled:hover:scale-[1.03] disabled:opacity-30">PDF</button>
         </div>
       </div>
 
@@ -1370,8 +1395,31 @@ function Antrag({ proj, pitch, file, grant, pitchId, loggedIn, onBack, onReset }
           </div>
         </div>)}
 
+      {/* Vorgaben-Check */}
+      {done && !error && (
+        <div className="no-print mb-6">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <Eyebrow>VORGABEN-CHECK · {grant.name}</Eyebrow>
+            <button onClick={checkCompliance} disabled={compBusy} className="inline-flex items-center gap-2 rounded-full border border-cobalt px-4 py-2 text-xs text-ink-900 transition-colors enabled:hover:bg-cobalt enabled:hover:text-cream-50 disabled:opacity-40">
+              {compBusy ? <><span className="spin"><NomosMark size={13} color="var(--cobalt)" /></span> prüft …</> : 'Entwurf gegen Förder-Vorgaben prüfen'}
+            </button>
+          </div>
+          {compErr && <div className="rounded-2xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-ink-900">{compErr}</div>}
+          {comp && (
+            <div className="anim-fadein rounded-3xl border border-cream-300 bg-cream-50 p-5">
+              {comp.gesamt && <p className="mb-3 text-sm font-medium text-ink-900">{comp.gesamt}</p>}
+              <div className="flex flex-col gap-2.5">
+                {(comp.items||[]).map((it,i)=>(
+                  <div key={i} className="flex items-start gap-3">
+                    <span className="brand-mono mt-0.5 flex-none rounded-full px-2 py-0.5 text-cream-50" style={{ fontSize:9, letterSpacing:'0.08em', background:compColor(it.status) }}>{(it.status||'').toUpperCase()}</span>
+                    <div><div className="text-sm font-medium text-ink-900">{it.anforderung}</div><div className="mt-0.5 text-sm leading-relaxed text-ink-700">{it.hinweis}</div></div>
+                  </div>))}
+              </div>
+            </div>)}
+        </div>)}
+
       {editing && (
-        <p className="no-print anim-fadein mb-3 text-sm text-ink-500">Bearbeitungsmodus — Text (Markdown) direkt anpassen, fehlende Infos ergänzen. „Vorschau" zeigt das formatierte Ergebnis, „⬇ .md"/„Als PDF" exportieren den aktuellen Stand.</p>
+        <p className="no-print anim-fadein mb-3 text-sm text-ink-500">Bearbeitungsmodus — Text (Markdown) direkt anpassen, fehlende Infos ergänzen. „Vorschau" zeigt das formatierte Ergebnis, „⬇ .docx"/„⬇ .md"/„PDF" exportieren den aktuellen Stand.</p>
       )}
       <article className="print-doc rounded-3xl border border-cream-300 bg-cream-50 p-8 md:p-12">
         {editing

@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { GRANTS, getGrantById } from "./grants.js";
-import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, antragSystem } from "./prompts.js";
+import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, COMPLIANCE_SCHEMA, complianceSystem, antragSystem } from "./prompts.js";
+import { buildDocx } from "./export.js";
 import { repo, dbKind } from "./db.js";
 import { hashPassword, verifyPassword, setSession, clearSession, attachUser, requireAuth, validEmail, publicUser } from "./auth.js";
 
@@ -16,7 +17,7 @@ const PORT = process.env.PORT || 3000;
 const MODEL = process.env.NOMOS_MODEL || "claude-opus-4-7";
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-20.5";
+const VERSION = "2026-05-20.6";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -446,6 +447,44 @@ app.post("/api/antraege", requireAuth, async (req, res) => {
     const { pitch_id, grant_id, grant_name, content } = req.body || {};
     const a = await repo.createAntrag(req.user.id, { pitch_id, grant_id, grant_name, content });
     res.json({ id: a.id });
+  } catch (err) { sendError(res, err); }
+});
+
+// ── /api/export (fertiges Dokument als DOCX) ─────────────────────────────────
+app.post("/api/export", async (req, res) => {
+  try {
+    const { content, projektname } = req.body || {};
+    if (!content || !String(content).trim()) return res.status(400).json({ error: "Kein Inhalt zum Exportieren." });
+    const buf = await buildDocx(content, projektname || "Foerderantrag");
+    const safe = String(projektname || "Foerderantrag").replace(/[^\w]+/g, "_").slice(0, 80) || "Foerderantrag";
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="${safe}.docx"`);
+    res.send(buf);
+  } catch (err) { sendError(res, err); }
+});
+
+// ── /api/compliance (Entwurf gegen Förder-Vorgaben prüfen) ───────────────────
+app.post("/api/compliance", async (req, res) => {
+  try {
+    let grant = getGrantById(req.body?.grantId);
+    if (!grant && req.body?.grant) { try { grant = JSON.parse(req.body.grant); } catch {} }
+    const content = req.body?.content;
+    if (!grant) return res.status(400).json({ error: "Unbekannte Förderlinie." });
+    if (!content || !String(content).trim()) return res.status(400).json({ error: "Kein Entwurf zum Prüfen." });
+
+    const stream = client().messages.stream({
+      model: MODEL,
+      max_tokens: 4000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: COMPLIANCE_SCHEMA } },
+      system: [{ type: "text", text: complianceSystem(grant), cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: `Prüfe diesen Antragsentwurf:\n\n${String(content).slice(0, 60000)}` }],
+    });
+    const message = await stream.finalMessage();
+    const textBlock = message.content.find((b) => b.type === "text");
+    let result = { gesamt: "", items: [] };
+    try { result = JSON.parse(textBlock.text); } catch {}
+    res.json(result);
   } catch (err) { sendError(res, err); }
 });
 

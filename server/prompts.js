@@ -136,6 +136,42 @@ Aufgabe: Bewerte das Matching unter Berücksichtigung der zusätzlichen Antworte
 
 Antworte ausschließlich im geforderten JSON-Schema (gleiche Struktur wie die Erstanalyse). Deutsch.`;
 
+// ── Vorgaben-Check: Entwurf gegen Förder-Anforderungen prüfen ────────────────
+export const COMPLIANCE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    gesamt: { type: "string", description: "1-Satz-Gesamteinschätzung." },
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          anforderung: { type: "string" },
+          status: { type: "string", description: "erfüllt | teilweise | offen" },
+          hinweis: { type: "string", description: "Kurzer, konkreter Hinweis, was fehlt/zu tun ist." },
+        },
+        required: ["anforderung", "status", "hinweis"],
+      },
+    },
+  },
+  required: ["gesamt", "items"],
+};
+
+export function complianceSystem(grant) {
+  const reqs = (Array.isArray(grant.requirements) && grant.requirements.length ? grant.requirements : ["(keine spezifischen hinterlegt)"])
+    .map((r) => `  · ${r}`).join("\n");
+  return `Du bist „Nomos", die Prüf-Engine von Telos AI.
+Prüfe den vorgelegten Antragsentwurf gegen die harten Anforderungen und Format-Vorgaben der Zielförderlinie „${grant.name}" (${grant.region}).
+
+Harte Anforderungen:
+${reqs}
+Format-Hinweise: ${grant.formatHints || "keine besonderen"}
+
+Bewerte je Anforderung den Status „erfüllt", „teilweise" oder „offen" und gib einen kurzen, konkreten Hinweis, was ggf. fehlt oder zu tun ist. Sei ehrlich und streng — keine Schönfärberei. Antworte ausschließlich im geforderten JSON-Schema. Deutsch.`;
+}
+
 export function antragSystem(grant) {
   const reqs = Array.isArray(grant.requirements) && grant.requirements.length
     ? grant.requirements.map((r) => `  · ${r}`).join("\n")
