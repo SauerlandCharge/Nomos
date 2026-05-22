@@ -55,6 +55,8 @@
     .anim-fadein{animation:fadeIn .6s ease both;}
     .spin{animation:spin 1s linear infinite;display:inline-flex;}
     .dot-pulse{animation:pulse 1.4s ease-in-out infinite;}
+    .no-scrollbar::-webkit-scrollbar{display:none;}
+    .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none;}
     .scan-line{position:absolute;inset:0;overflow:hidden;border-radius:inherit;pointer-events:none;}
     .scan-line::before{content:'';position:absolute;top:0;left:0;width:40%;height:100%;
       background:linear-gradient(90deg,transparent,rgba(194,106,76,0.18),transparent);animation:sweep 1.6s ease-in-out infinite;}
@@ -1066,13 +1068,28 @@ function App() {
 
   async function runLiveSearch(a) {
     if (!a) return;
-    setSearching(true); setLiveErr('');
+    setSearching(true); setLiveErr(''); setLive([]);
     try {
       const res = await fetch('/api/livesearch', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ projektname: a.projektname||proj, einzeiler: a.einzeiler, branche: a.branche, phase: a.phase, region: a.region }) });
-      const data = await res.json().catch(()=>({}));
-      if (!res.ok) throw new Error(data.error || ('Fehler '+res.status));
-      setLive(data.programs || []);
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || ('Fehler '+res.status)); }
+      // Progressive NDJSON: pro Zeile ein Treffer — sofort anhängen (dedupliziert).
+      let buf = '';
+      const handle = (txt) => {
+        buf += txt; let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+          if (!line) continue;
+          let obj; try { obj = JSON.parse(line); } catch { continue; }
+          if (obj.error) { setLiveErr(obj.error); continue; }
+          if (obj.program) setLive(prev => {
+            const k = (obj.program.name||'').toLowerCase().trim();
+            if (!k || prev.some(p => (p.name||'').toLowerCase().trim() === k)) return prev;
+            return [...prev, obj.program];
+          });
+        }
+      };
+      await readStream(res, handle);
     } catch (e) { setLiveErr(e.message); }
     setSearching(false);
   }
@@ -1150,13 +1167,14 @@ function App() {
         flowBusy={flowBusy} flowLabel={flowLabel} onResume={resumeFlow} />
       {page==='verlauf' ? <Verlauf auth={auth} onLogin={requireLogin} openPitch={openPitch} />
         : page==='profil' ? <Profil auth={auth} onLogin={requireLogin} />
+        : page==='entdecken' ? <PageExplore startPitch={startPitch} />
         : page==='businessplan' ? <PageBusinessplan onUseForMatching={useIdeaPlan} />
         : page !== 'home'
         ? <Marketing page={page} go={go} startPitch={startPitch} />
         : <>
-            {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} onIdea={()=>go('businessplan')} onVision={()=>go('vision')} />}
+            {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} onIdea={()=>go('businessplan')} onVision={()=>go('vision')} onExplore={()=>go('entdecken')} />}
             {view==='analyze'   && <Analyzing proj={proj} />}
-            {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis,live,searching,liveErr}} onReSearch={()=>runLiveSearch(analysis)} onUpdate={setAnalysis} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
+            {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis,live,searching,liveErr}} onReSearch={()=>runLiveSearch(analysis)} onUpdate={(u)=>{ setAnalysis(u); runLiveSearch(u); }} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
             {view==='antrag'    && <Antrag {...{proj,pitch,file,grant:selected,pitchId,loggedIn:!!auth.user}} onBack={()=>setView('dashboard')} onReset={reset} />}
           </>}
       <Footer go={go} startPitch={startPitch} />
@@ -1166,7 +1184,7 @@ function App() {
   );
 }
 
-const NAV_ITEMS = [['Produkt','produkt'],['Nomos-Engine','engine'],['Förderlinien','foerderlinien'],['Preise','preise'],['Vision','vision']];
+const NAV_ITEMS = [['Entdecken','entdecken'],['Produkt','produkt'],['Nomos-Engine','engine'],['Preise','preise'],['Vision','vision']];
 
 function Nav({ page, go, onLogo, startPitch, auth, onLogin, flowBusy, flowLabel, onResume }) {
   const [open, setOpen] = useState(false);
@@ -1227,7 +1245,7 @@ function Nav({ page, go, onLogo, startPitch, auth, onLogin, flowBusy, flowLabel,
 }
 
 /* ── Landing ─────────────────────────────────────────────────────────────── */
-function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnalyze, onIdea, onVision }) {
+function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnalyze, onIdea, onVision, onExplore }) {
   const [drag, setDrag] = useState(false);
   const inputRef = useRef(null);
   const model = useModel();
@@ -1351,6 +1369,22 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
           </div>
         </button>
       </div>
+
+      {/* Entdecken-Teaser */}
+      <div className="mt-12 rounded-3xl border border-cream-300 bg-cream-50 p-6 md:p-8">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <Eyebrow>KEIN PLAN ZUR HAND? · ENTDECKEN</Eyebrow>
+            <h3 className="mt-2 font-sans" style={{ fontSize:24, fontWeight:500, letterSpacing:'-0.03em' }}>Aktuelle Förderungen nach Thema</h3>
+          </div>
+          <button onClick={onExplore} className="rounded-full border border-ink-900 px-4 py-2 text-sm text-ink-900 transition-colors hover:bg-ink-900 hover:text-cream-100">Alle entdecken →</button>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {[['Top für Gründer','top'],['KI & Deep Tech','ki'],['Nachhaltigkeit & Klima','nachhaltigkeit'],['Digitalisierung','digitalisierung'],['EU-Programme','eu']].map(([l])=>(
+            <button key={l} onClick={onExplore}
+              className="rounded-full border border-cream-400 px-3.5 py-1.5 text-xs text-ink-700 transition-colors hover:border-ink-900 hover:text-ink-900">{l}</button>))}
+        </div>
+      </div>
     </main>
   );
 }
@@ -1468,14 +1502,73 @@ function FollowupPanel({ analysis, onUpdate }) {
           <div className="mt-4 flex items-center gap-3">
             <button onClick={submit} disabled={phase==='rescoring'}
               className="rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100 transition-transform enabled:hover:scale-[1.03] disabled:opacity-40">
-              {phase==='rescoring' ? 'Aktualisiere Score …' : 'Score aktualisieren →'}
+              {phase==='rescoring' ? 'Verfeinere …' : 'Verfeinern & neu suchen →'}
             </button>
             {phase==='rescoring' && <span className="spin"><NomosMark size={16} color="var(--terracotta)" /></span>}
           </div>
         </div>)}
 
-      {phase==='done' && <div className="rounded-2xl border border-cobalt/40 bg-cobalt/10 px-4 py-3 text-sm text-ink-900">✓ Treffer mit deinen Zusatzinfos neu bewertet — die Scores oben sind aktualisiert.</div>}
+      {phase==='done' && <div className="rounded-2xl border border-cobalt/40 bg-cobalt/10 px-4 py-3 text-sm text-ink-900">✓ Profil verfeinert — Nomos sucht oben passende Förderungen neu.</div>}
     </div>
+  );
+}
+
+/* ── Entdecken: aktuelle Förderungen nach Kategorie ───────────────────────── */
+function PageExplore({ startPitch }) {
+  const [cats, setCats] = useState([]);
+  const [active, setActive] = useState(null);
+  const [progs, setProgs] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [detail, setDetail] = useState(null);
+  const cache = useRef({});
+
+  useEffect(() => {
+    fetch('/api/explore/categories').then(r=>r.json()).then(d=>{
+      const list = d.categories || []; setCats(list);
+      if (list.length) load(list[0].key);
+    }).catch(()=>setErr('Kategorien konnten nicht geladen werden.'));
+  }, []);
+
+  async function load(key){
+    setActive(key); setErr('');
+    if (cache.current[key]) { setProgs(cache.current[key]); return; }
+    setBusy(true); setProgs([]);
+    try {
+      const r = await fetch('/api/explore?category='+encodeURIComponent(key));
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || ('Fehler '+r.status));
+      cache.current[key] = d.programs || []; setProgs(d.programs || []);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  return (
+    <main className="anim-fadein mx-auto max-w-5xl px-6 pb-24 pt-10 md:px-12">
+      <Eyebrow>NOMOS · ENTDECKEN</Eyebrow>
+      <h1 className="mt-2 font-sans" style={{ fontSize:'clamp(30px,4.5vw,46px)', fontWeight:500, letterSpacing:'-0.03em', lineHeight:1.02 }}>Aktuelle Förderungen,<br/>nach Thema sortiert.</h1>
+      <p className="mt-3 max-w-xl text-ink-700">Frisch aus dem Web recherchiert und auf Beantragbarkeit geprüft. Wähle eine Kategorie — oder lade oben deinen Businessplan hoch für ein passgenaues Matching.</p>
+
+      <div className="no-scrollbar mt-7 flex gap-2 overflow-x-auto pb-1">
+        {cats.map(c => (
+          <button key={c.key} onClick={()=>load(c.key)}
+            className={"whitespace-nowrap rounded-full border px-4 py-2 text-sm transition-all "+(active===c.key ? 'border-ink-900 bg-ink-900 text-cream-100' : 'border-cream-400 text-ink-700 hover:border-ink-900 hover:text-ink-900')}>
+            {c.label}
+          </button>))}
+      </div>
+
+      <div className="mt-6">
+        {err && <p className="brand-mono text-terracotta" style={{ fontSize:11 }}>{err}</p>}
+        {busy
+          ? <SearchingRows have={0} />
+          : progs.length
+            ? <div className="grid gap-2.5 md:grid-cols-2">
+                {progs.map((g,i)=><MatchRow key={(g.id||g.name)+'-'+i} g={g} delay={i*40} ctaLabel="Details ansehen →" onSelect={()=>setDetail(g)} />)}
+              </div>
+            : !err && <p className="text-sm text-ink-500">Keine aktuell beantragbaren Programme gefunden.</p>}
+      </div>
+
+      {detail && <GrantDetail grant={detail} onClose={()=>setDetail(null)} startPitch={startPitch} />}
+    </main>
   );
 }
 
@@ -1484,16 +1577,20 @@ function Dashboard({ proj, pitch, file, analysis, live, searching, liveErr, onRe
   const sourceText = pitch.trim() || a.einzeiler || '';
   const [translated, setTranslated] = useState('');
   const [translating, setTranslating] = useState(false);
-  // Kuratierte Treffer + Web-Treffer mergen (dedupliziert, abgelaufene raus, sortiert).
-  const combined = useMemo(() => {
+  // Web-getrieben: nur Live-Treffer anzeigen. Kuratierte DB nur als stiller Fallback,
+  // wenn die Web-Suche abgeschlossen ist und nichts geliefert hat.
+  const dedupeSort = (list) => {
     const seen = new Set(); const out = [];
-    for (const g of [...(a.matches || []), ...(live || [])]) {
+    for (const g of list) {
       if (g.antragMoeglich === false) continue;
       const k = (g.name || '').toLowerCase().trim();
       if (!k || seen.has(k)) continue; seen.add(k); out.push(g);
     }
     return out.sort((x, y) => (y.fit || 0) - (x.fit || 0));
-  }, [a.matches, live]);
+  };
+  const webResults = useMemo(() => dedupeSort(live || []), [live]);
+  const usingFallback = !searching && webResults.length === 0 && (a.matches || []).length > 0;
+  const combined = usingFallback ? dedupeSort(a.matches || []) : webResults;
 
   async function translate() {
     if (!sourceText) return;
@@ -1515,7 +1612,7 @@ function Dashboard({ proj, pitch, file, analysis, live, searching, liveErr, onRe
           <h2 className="mt-1 font-sans" style={{ fontSize:30, fontWeight:500, letterSpacing:'-0.03em' }}>{a.projektname || proj || 'Dein Vorhaben'}</h2>
           {a.einzeiler && <p className="mt-2 max-w-2xl text-ink-700">{a.einzeiler}</p>}
         </div>
-        <span className="brand-mono flex items-center gap-1.5 text-terracotta" style={{ fontSize:10 }}><span className="dot-pulse">●</span> {(a.matches||[]).length} TREFFER</span>
+        <span className="brand-mono flex items-center gap-1.5 text-terracotta" style={{ fontSize:10 }}><span className="dot-pulse">●</span> {combined.length} TREFFER{searching && ' …'}</span>
       </div>
 
       {/* meta + staerken/luecken */}
@@ -1529,27 +1626,27 @@ function Dashboard({ proj, pitch, file, analysis, live, searching, liveErr, onRe
         <ListCard title="MÖGLICHE LÜCKEN" items={a.luecken} color="var(--terracotta)" />
       </div>
 
-      {/* matches (kuratiert + Web-Suche kombiniert) */}
+      {/* matches — web-getrieben, progressiv */}
       <div className="mt-6">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <Eyebrow>SCHRITT 2 · TOP-FÖRDERUNGEN (KURATIERT + WEB)</Eyebrow>
+          <Eyebrow>SCHRITT 2 · AKTUELLE FÖRDERUNGEN · LIVE AUS DEM WEB</Eyebrow>
           <span className="brand-mono flex items-center gap-1.5 text-cobalt" style={{ fontSize:10, letterSpacing:'0.1em' }}>
             {searching ? <><span className="spin"><NomosMark size={12} color="var(--cobalt)" /></span> WEB-SUCHE LÄUFT …</>
               : <button onClick={onReSearch} className="hover:underline">↻ ERNEUT IM WEB SUCHEN</button>}
           </span>
         </div>
         {combined.length===0 && !searching
-          ? <div className="rounded-2xl border border-cream-300 bg-cream-50 p-5 text-sm text-ink-700">Keine ausreichend passenden Förderlinien gefunden. Ergänze deinen Plan um Region, Phase und Technologiefeld und versuche es erneut.</div>
+          ? <div className="rounded-2xl border border-cream-300 bg-cream-50 p-5 text-sm text-ink-700">Keine aktuell beantragbaren Förderungen gefunden. Ergänze deinen Plan um Region, Phase und Technologiefeld und suche erneut.</div>
           : <div className="flex flex-col gap-2.5">
-              {combined.map((g,i)=><MatchRow key={(g.id||g.name||'')+'-'+g.fit} g={g} delay={i*50} onSelect={()=>onSelect(g)} />)}
-              {searching && combined.length===0 && <SkeletonRows n={3} />}
+              {combined.map((g,i)=><MatchRow key={(g.id||g.name||'')+'-'+g.fit} g={g} delay={i*40} onSelect={()=>onSelect(g)} />)}
+              {searching && <SearchingRows have={combined.length} />}
             </div>}
-        {liveErr && <p className="mt-2 brand-mono text-ink-500" style={{ fontSize:10 }}>Web-Suche nicht verfügbar ({liveErr}) — kuratierte Treffer werden angezeigt.</p>}
-        {live.length>0 && <p className="mt-2 brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>● LIVE-TREFFER (●) AUS DER WEB-SUCHE — QUELLEN VOR ANTRAGSTELLUNG PRÜFEN</p>}
+        {usingFallback && <p className="mt-2 brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>● WEB-SUCHE OHNE TREFFER{liveErr?` (${liveErr})`:''} — ERSATZWEISE PASSENDE PROGRAMME AUS DER NOMOS-DATENBANK.</p>}
+        {!usingFallback && combined.length>0 && <p className="mt-2 brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>● LIVE AUS DEM WEB — QUELLEN VOR ANTRAGSTELLUNG PRÜFEN</p>}
       </div>
 
       {/* Rückfragen / Verfeinerung */}
-      {(a.matches||[]).length>0 && <FollowupPanel analysis={analysis} onUpdate={onUpdate} />}
+      {combined.length>0 && <FollowupPanel analysis={analysis} onUpdate={onUpdate} />}
 
       {/* translation */}
       <div className="mt-8">
@@ -1607,7 +1704,7 @@ function ScoreRing({ value, color, size = 60 }) {
   );
 }
 
-function MatchRow({ g, delay, onSelect }) {
+function MatchRow({ g, delay, onSelect, ctaLabel='Antrag erstellen →' }) {
   const col = fitColor(g.fit);
   return (
     <div className="anim-fadeup group rounded-2xl border border-cream-200 bg-cream-50 p-4 transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_36px_-16px_rgba(40,30,20,0.35)]"
@@ -1631,7 +1728,7 @@ function MatchRow({ g, delay, onSelect }) {
           {g.summary && <p className="mt-2 text-sm leading-relaxed text-ink-700">{g.summary}</p>}
           <p className="mt-1.5 text-sm leading-relaxed text-ink-900"><span className="brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.1em' }}>WARUM: </span>{g.begruendung}</p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button onClick={onSelect} className="rounded-full bg-ink-900 px-4 py-2 text-xs font-medium text-cream-100 transition-transform hover:scale-[1.04]">Antrag erstellen →</button>
+            <button onClick={onSelect} className="rounded-full bg-ink-900 px-4 py-2 text-xs font-medium text-cream-100 transition-transform hover:scale-[1.04]">{ctaLabel}</button>
             {g.url && <a href={g.url} target="_blank" rel="noopener noreferrer" className="brand-mono text-cobalt hover:underline" style={{ fontSize:10, letterSpacing:'0.08em' }}>Zur Förderung ↗</a>}
           </div>
         </div>
@@ -1660,6 +1757,24 @@ function SkeletonRow() {
   );
 }
 const SkeletonRows = ({ n=3 }) => <div className="flex flex-col gap-2.5">{Array.from({length:n}).map((_,i)=><SkeletonRow key={i} />)}</div>;
+
+// Lebendiger Lade-Zustand der Web-Suche: wechselnde Quellen-Mikrocopy + Shimmer-Reihen.
+const SEARCH_SOURCES = ['Förderdatenbank des Bundes','Landesförderbanken','EU-Programme (Horizon · EIC)','Ministerien & Förderbanken','aktuelle Fristen & Einreichrunden'];
+function SearchingRows({ have=0 }) {
+  const [i, setI] = useState(0);
+  useEffect(() => { const id = setInterval(()=>setI(v=>(v+1)%SEARCH_SOURCES.length), 1600); return ()=>clearInterval(id); }, []);
+  return (
+    <div className={have>0 ? 'mt-1' : ''}>
+      <div className="flex items-center gap-2.5 rounded-xl border border-cobalt/30 bg-cobalt/5 px-4 py-3">
+        <span className="spin"><NomosMark size={15} color="var(--cobalt)" /></span>
+        <span className="brand-mono text-cobalt" style={{ fontSize:11, letterSpacing:'0.04em' }}>
+          {have>0 ? 'sucht weiter …' : 'durchsucht'} <span key={i} className="anim-fadein text-ink-700">{SEARCH_SOURCES[i]}</span>
+        </span>
+      </div>
+      {have===0 && <div className="mt-2.5"><SkeletonRows n={3} /></div>}
+    </div>
+  );
+}
 
 function Panel({ label, dark, children }) {
   return (

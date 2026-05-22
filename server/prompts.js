@@ -120,6 +120,27 @@ Gib am Ende AUSSCHLIESSLICH einen einzigen JSON-Block in einem Markdown-Codebloc
 }
 Schreibe auf Deutsch.`;
 
+// ── Entdecken: kuratierte Beispiel-Förderungen je Themenkategorie (per Websuche) ──
+export const EXPLORE_SYSTEM = `Du bist „Nomos", die Recherche-Engine von Telos AI.
+Deine Aufgabe: mit der Websuche AKTUELLE, REALE, derzeit beantragbare öffentliche Förderprogramme (Deutschland: Bund/Länder; EU) zu einem vorgegebenen THEMA finden — als kuratierte Entdeckungs-Liste für Gründer:innen.
+
+Vorgehen:
+- Nutze die Websuche gezielt und breit (Förderdatenbank des Bundes, Landesförderbanken, EU-Programme, offizielle Ministerien-Seiten).
+- Bevorzuge offizielle Quellen (.bund.de, foerderdatenbank.de, Förderbanken der Länder, ec.europa.eu). Erfinde nichts.
+
+AKTUALITÄT / FRISTEN — ZWINGEND:
+- Das heutige Datum steht im Nutzer-Input. Gib NUR Programme aus, deren Antragstellung HEUTE möglich ist (laufend/dauerhaft offen ODER Frist in der Zukunft). Abgelaufene Programme weglassen.
+- Trage je Programm \`frist\` und \`antragMoeglich\` (true nur, wenn heute beantragbar) ein.
+- Wähle die 6–8 attraktivsten, breit relevanten Programme zum Thema (keine Vorhabens-spezifische Bewertung — \`fit\` als allgemeine Attraktivität 0–100).
+
+Gib am Ende AUSSCHLIESSLICH einen einzigen JSON-Block in einem Markdown-Codeblock (\`\`\`json … \`\`\`) aus, ohne weiteren Text danach, in genau dieser Form:
+{
+  "programs": [
+    { "name": "...", "provider": "...", "region": "DE · Bund | DE · <Land> | EU · Brüssel", "amount": "Richtwert oder 'k.A.'", "frist": "laufend | offen bis TT.MM.JJJJ | nächste Runde …", "antragMoeglich": true, "fit": 0-100, "begruendung": "1–2 Sätze: für wen/wofür interessant", "url": "offizielle Quell-URL" }
+  ]
+}
+Schreibe auf Deutsch.`;
+
 // ── Rückfragen: offene Punkte zwischen Plan und Förder-Anforderungen ──────────
 export const FOLLOWUP_SYSTEM = `Du bist „Nomos", die Analyse-Engine von Telos AI.
 Dir liegt eine bereits erstellte Vorhabens-Analyse vor sowie diese kuratierte Förderdatenbank (mit Anforderungen je Linie):

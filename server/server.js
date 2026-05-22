@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { GRANTS, getGrantById } from "./grants.js";
-import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, RESOLVE_SYSTEM, BUSINESSPLAN_SYSTEM, BUSINESSPLAN_REFINE_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, COMPLIANCE_SCHEMA, complianceSystem, CHECKLIST_SCHEMA, checklistSystem, antragSystem } from "./prompts.js";
+import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, RESOLVE_SYSTEM, BUSINESSPLAN_SYSTEM, BUSINESSPLAN_REFINE_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, COMPLIANCE_SCHEMA, complianceSystem, CHECKLIST_SCHEMA, checklistSystem, antragSystem, EXPLORE_SYSTEM } from "./prompts.js";
 import { buildDocx } from "./export.js";
 import { readFields, fillFields } from "./forms.js";
 import { repo, dbKind } from "./db.js";
@@ -24,7 +24,7 @@ const MODELS = {
 const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-22.3";
+const VERSION = "2026-05-22.4";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -214,47 +214,74 @@ app.post("/api/rescore", async (req, res) => {
   }
 });
 
-// ── /api/livesearch (Web-Suche nach aktuellen Förderprogrammen) ──────────────
-app.post("/api/livesearch", async (req, res) => {
-  try {
-    const { projektname, einzeiler, branche, phase, region } = req.body || {};
-    if (!einzeiler && !projektname) return res.status(400).json({ error: "Keine Vorhabensbeschreibung." });
-
-    const heute = new Date().toISOString().slice(0, 10);
-    const query =
-      `Heutiges Datum: ${heute}\n` +
-      `Vorhaben: ${projektname || "(unbenannt)"}\n` +
-      `Beschreibung: ${einzeiler || ""}\n` +
-      `Branche: ${branche || "k.A."}\nPhase: ${phase || "k.A."}\nRegion: ${region || "k.A."}\n\n` +
-      `Finde möglichst ALLE aktuell beantragbaren, realen öffentlichen Förderprogramme, die zu diesem Vorhaben passen. Prüfe je Programm, ob heute (${heute}) eine Antragstellung noch möglich ist, und lasse abgelaufene Programme weg.`;
-
-    let messages = [{ role: "user", content: query }];
-    let final = null;
-    const c = client();
-    for (let i = 0; i < 8; i++) {
-      const resp = await c.messages.create({
-        model: MODEL,
-        max_tokens: 8000,
-        thinking: { type: "adaptive" },
-        output_config: { effort: "medium" },
-        system: [{ type: "text", text: LIVESEARCH_SYSTEM, cache_control: { type: "ephemeral" } }],
-        tools: [{ type: "web_search_20260209", name: "web_search" }],
-        messages,
-      });
-      if (resp.stop_reason === "pause_turn") {
-        messages = [{ role: "user", content: query }, { role: "assistant", content: resp.content }];
-        continue;
-      }
-      final = resp;
-      break;
+// Eine Web-Recherche-Runde: Suchschleife bis zur finalen Antwort, dann Programme extrahieren.
+async function webSearchPrograms(query, { maxIters = 6, idPrefix = "live", system = LIVESEARCH_SYSTEM } = {}) {
+  let messages = [{ role: "user", content: query }];
+  let final = null;
+  const c = client();
+  for (let i = 0; i < maxIters; i++) {
+    const resp = await c.messages.create({
+      model: MODEL,
+      max_tokens: 8000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium" },
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+      tools: [{ type: "web_search_20260209", name: "web_search" }],
+      messages,
+    });
+    if (resp.stop_reason === "pause_turn") {
+      messages = [{ role: "user", content: query }, { role: "assistant", content: resp.content }];
+      continue;
     }
-    if (!final) throw new Error("Websuche nicht abgeschlossen.");
+    final = resp;
+    break;
+  }
+  if (!final) return [];
+  const fullText = final.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  return extractPrograms(fullText, idPrefix);
+}
 
-    const fullText = final.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
-    const programs = extractPrograms(fullText);
-    res.json({ programs });
+// ── /api/livesearch (web-getriebene Treffer, progressiv in zwei Wellen gestreamt) ──
+app.post("/api/livesearch", async (req, res) => {
+  const { projektname, einzeiler, branche, phase, region } = req.body || {};
+  if (!einzeiler && !projektname) return res.status(400).json({ error: "Keine Vorhabensbeschreibung." });
+  try { client(); } catch (err) { return sendError(res, err); } // fehlender Key → sauberes JSON-503
+
+  const heute = new Date().toISOString().slice(0, 10);
+  const base =
+    `Heutiges Datum: ${heute}\n` +
+    `Vorhaben: ${projektname || "(unbenannt)"}\n` +
+    `Beschreibung: ${einzeiler || ""}\n` +
+    `Branche: ${branche || "k.A."}\nPhase: ${phase || "k.A."}\nRegion: ${region || "k.A."}\n\n`;
+  const q1 = base + `Finde die wichtigsten, naheliegend passenden, HEUTE (${heute}) noch beantragbaren öffentlichen Förderprogramme (Bund/Länder/EU) für dieses Vorhaben. Konzentriere dich auf die offensichtlichsten Treffer.`;
+  const q2 = base + `Finde WEITERE, weniger offensichtliche, HEUTE (${heute}) noch beantragbare öffentliche Förderprogramme für dieses Vorhaben — auch Landes- und EU-Programme sowie Nischen-/Branchenförderungen. Vermeide Allerwelts-Treffer.`;
+
+  res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  let aborted = false;
+  res.on("close", () => { if (!res.writableEnded) aborted = true; });
+  const seen = new Set();
+  const emit = (programs) => {
+    for (const p of programs) {
+      const k = (p.name || "").toLowerCase().trim();
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      if (!aborted) res.write(JSON.stringify({ program: p }) + "\n");
+    }
+  };
+
+  try {
+    emit(await webSearchPrograms(q1, { maxIters: 4, idPrefix: "live1" })); // Welle 1: schnell
+    if (aborted) return;
+    emit(await webSearchPrograms(q2, { maxIters: 6, idPrefix: "live2" })); // Welle 2: breiter
+    if (!aborted) res.end();
   } catch (err) {
-    sendError(res, err);
+    if (aborted) return;
+    res.write(JSON.stringify({ error: err.message || "Websuche fehlgeschlagen." }) + "\n");
+    res.end();
   }
 });
 
@@ -332,7 +359,7 @@ function salvageAnalysis(text) {
   return null;
 }
 
-function extractPrograms(text) {
+function extractPrograms(text, idPrefix = "live") {
   let jsonStr = null;
   const fenced = text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/);
   if (fenced) jsonStr = fenced[1];
@@ -351,7 +378,7 @@ function extractPrograms(text) {
         const abgelaufen = /abgelaufen|verstrichen|geschlossen|beendet/i.test(frist);
         const antragMoeglich = p.antragMoeglich === false ? false : !abgelaufen;
         return {
-          id: `live-${idx}`,
+          id: `${idPrefix}-${idx}`,
           live: true,
           name: String(p.name || "").slice(0, 200),
           provider: String(p.provider || "").slice(0, 120),
@@ -701,6 +728,39 @@ app.post("/api/fillform-url", async (req, res) => {
     if (err.status) return res.status(err.status).json({ error: err.message });
     sendError(res, err);
   }
+});
+
+// ── /api/explore (Entdecken: aktuelle Beispiel-Förderungen je Kategorie, gecacht) ──
+const EXPLORE_CATEGORIES = [
+  { key: "top",            label: "Top für Gründer",        seed: "allgemeine Gründungs-, Startup- und Existenzgründungsförderung (z. B. Gründungszuschuss, EXIST, Mikromezzanin, Förderkredite)" },
+  { key: "ki",             label: "KI & Deep Tech",         seed: "Künstliche Intelligenz, Software, Deep Tech und Hochtechnologie" },
+  { key: "nachhaltigkeit", label: "Nachhaltigkeit & Klima", seed: "Klimaschutz, Nachhaltigkeit, Energiewende, Ressourceneffizienz und GreenTech" },
+  { key: "digitalisierung",label: "Digitalisierung",        seed: "Digitalisierung von Unternehmen, Industrie 4.0, digitale Geschäftsmodelle und IT" },
+  { key: "forschung",      label: "Forschung & Hochschule", seed: "Forschung, Innovation, Technologietransfer und hochschulnahe Ausgründungen" },
+  { key: "impact",         label: "Soziales & Impact",      seed: "Sozialunternehmen, Social Entrepreneurship, Gesundheit und gemeinwohlorientierte Vorhaben" },
+  { key: "eu",             label: "EU-Programme",           seed: "EU-Förderprogramme für KMU und Start-ups (z. B. Horizon Europe, EIC, EU-Programme)" },
+  { key: "regional",       label: "Regional / Länder",      seed: "regionale Landesförderprogramme der deutschen Bundesländer für Gründungen und KMU" },
+];
+const exploreCache = new Map(); // key -> { ts, programs }
+const EXPLORE_TTL = 24 * 60 * 60 * 1000;
+
+app.get("/api/explore/categories", (_req, res) =>
+  res.json({ categories: EXPLORE_CATEGORIES.map(({ key, label }) => ({ key, label })) }));
+
+app.get("/api/explore", async (req, res) => {
+  try {
+    const cat = EXPLORE_CATEGORIES.find((c) => c.key === String(req.query.category || ""));
+    if (!cat) return res.status(400).json({ error: "Unbekannte Kategorie." });
+    const cached = exploreCache.get(cat.key);
+    if (cached && Date.now() - cached.ts < EXPLORE_TTL) {
+      return res.json({ category: cat.key, label: cat.label, programs: cached.programs, cached: true });
+    }
+    const heute = new Date().toISOString().slice(0, 10);
+    const query = `Heutiges Datum: ${heute}\nThema/Kategorie: ${cat.label} — ${cat.seed}\n\nFinde aktuell beantragbare, reale öffentliche Förderprogramme zu diesem Thema für Gründer:innen und junge Unternehmen in Deutschland/EU.`;
+    const programs = await webSearchPrograms(query, { maxIters: 5, idPrefix: `exp-${cat.key}`, system: EXPLORE_SYSTEM });
+    exploreCache.set(cat.key, { ts: Date.now(), programs });
+    res.json({ category: cat.key, label: cat.label, programs, cached: false });
+  } catch (err) { sendError(res, err); }
 });
 
 app.get("/api/grants", (_req, res) => res.json(GRANTS));
