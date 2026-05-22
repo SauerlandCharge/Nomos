@@ -5,9 +5,11 @@
   "type": "module",
   "description": "Telos · Nomos — übersetzt Businesspläne in Behördendeutsch, findet Fördermittel und generiert 80% des Förderantrags.",
   "scripts": {
+    "build": "node build.mjs",
+    "prestart": "node build.mjs",
     "start": "node server/server.js",
-    "dev": "node --watch server/server.js",
-    "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true"
+    "dev": "node build.mjs --watch & node --watch server/server.js",
+    "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true; node build.mjs || true"
   },
   "engines": {
     "node": ">=20"
@@ -15,11 +17,17 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.1",
     "docx": "^9.6.1",
+    "dompurify": "^3.4.5",
     "dotenv": "^17.0.0",
+    "esbuild": "^0.28.0",
     "express": "^5.0.0",
     "mammoth": "^1.8.0",
+    "marked": "^14.1.4",
     "multer": "^2.0.0",
     "pdf-lib": "^1.17.1",
-    "pg": "^8.21.0"
+    "pg": "^8.21.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.19"
   }
 }
