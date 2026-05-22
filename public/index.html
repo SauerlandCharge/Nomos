@@ -937,10 +937,23 @@ function PageBusinessplan({ onUseForMatching }) {
   const [idea, setIdea] = useState('');
   const [plan, setPlan] = useState('');
   const [busy, setBusy] = useState(false);
+  const [wordBusy, setWordBusy] = useState(false);
   const [refineMsg, setRefineMsg] = useState('');
   const [err, setErr] = useState('');
   const ideaSpeech = useSpeech((t)=>setIdea(p=>(p.trim()? p.trim()+' ':'')+t));
   const html = useMemo(()=>DOMPurify.sanitize(marked.parse(plan||'', { breaks:true })), [plan]);
+
+  async function downloadWord(){
+    if (!plan) return;
+    setWordBusy(true);
+    try {
+      const title = extractPlanTitle(plan) || 'Businessplan';
+      const res = await fetch('/api/export', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ content: plan, projektname: title }) });
+      if (!res.ok) throw new Error('Export fehlgeschlagen');
+      downloadBlob(await res.blob(), safeFile(title) + '.docx');
+    } catch (e) { setErr(e.message || 'Word-Export fehlgeschlagen'); }
+    setWordBusy(false);
+  }
 
   async function stream(url, body, keepOnError) {
     setBusy(true); setErr('');
@@ -997,8 +1010,10 @@ function PageBusinessplan({ onUseForMatching }) {
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <button onClick={()=>onUseForMatching(plan)} disabled={busy} className="rounded-full bg-terracotta px-6 py-3 text-sm font-medium text-cream-50 transition-transform enabled:hover:scale-[1.03] disabled:opacity-40">Mit diesem Plan Förderungen finden →</button>
-            <span className="brand-mono text-ink-500" style={{ fontSize:10 }}>Der Plan wird direkt analysiert; eingeloggt landet er in deinem Verlauf.</span>
+            <button onClick={downloadWord} disabled={busy||wordBusy} className="rounded-full border border-cream-400 px-4 py-3 text-sm text-ink-900 transition-colors enabled:hover:border-ink-900 disabled:opacity-40">{wordBusy?'… Word':'⬇ Word (.docx)'}</button>
+            <button onClick={()=>printHtmlAsPdf(html, extractPlanTitle(plan)||'Businessplan')} disabled={busy} className="rounded-full border border-cream-400 px-4 py-3 text-sm text-ink-900 transition-colors enabled:hover:border-ink-900 disabled:opacity-40">⬇ PDF</button>
           </div>
+          <span className="mt-2 block brand-mono text-ink-500" style={{ fontSize:10 }}>Der Plan wird direkt analysiert; eingeloggt landet er in deinem Verlauf. „PDF" öffnet die Druckansicht → „Als PDF speichern".</span>
         </>)}
 
       <p className="mt-6 brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.1em' }}>● ERSTER ENTWURF — „[BITTE ERGÄNZEN]"-STELLEN SELBST PRÜFEN/FÜLLEN</p>
@@ -1006,9 +1021,32 @@ function PageBusinessplan({ onUseForMatching }) {
   );
 }
 
+/* ── Anmelde-Nudge: freundlich, schließbar, nach der ersten Analyse ────────── */
+function SignupNudge({ onLogin, onClose }) {
+  return (
+    <div className="no-print anim-fadeup fixed inset-x-3 bottom-3 z-40 mx-auto max-w-md rounded-2xl border border-cream-300 bg-cream-50 p-4 shadow-[0_20px_50px_-20px_rgba(40,30,20,0.5)] md:inset-x-auto md:right-5 md:bottom-5">
+      <div className="flex items-start gap-3">
+        <div className="flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-ink-900"><NomosMark size={18} color="var(--cream-100)" /></div>
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink-900">Ergebnisse sichern & im Hintergrund weiterarbeiten</div>
+          <p className="mt-1 text-sm leading-relaxed text-ink-700">Melde dich kostenlos an, dann landen deine Analyse und Anträge im Verlauf, die Fördersuche läuft beim Navigieren weiter und du kannst jederzeit fortsetzen.</p>
+          <div className="mt-3 flex items-center gap-2">
+            <button onClick={onLogin} className="rounded-full bg-terracotta px-4 py-2 text-xs font-medium text-cream-50 transition-transform hover:scale-[1.03]">Kostenlos anmelden</button>
+            <button onClick={onClose} className="rounded-full px-3 py-2 text-xs text-ink-500 transition-colors hover:text-ink-900">Später</button>
+          </div>
+        </div>
+        <button onClick={onClose} aria-label="Schließen" className="flex-none text-ink-300 transition-colors hover:text-ink-900">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── App shell ───────────────────────────────────────────────────────────── */
 function App() {
   const [view, setView] = useState('landing');
+  const [page, setPage] = useState('home');
   const [proj, setProj] = useState('');
   const [pitch, setPitch] = useState('');
   const [file, setFile] = useState(null);
@@ -1019,35 +1057,88 @@ function App() {
   const auth = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
 
-  async function analyze(overrideText) {
+  // Matching-Pipeline — liegt in App, läuft daher beim Navigieren weiter und geht nicht verloren.
+  const [phase, setPhase] = useState('idle'); // idle|analyzing|questions|finalizing|ready|error
+  const [questions, setQuestions] = useState([]);
+  const [live, setLive] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [liveErr, setLiveErr] = useState('');
+  const [nudgeClosed, setNudgeClosed] = useState(() => { try { return localStorage.getItem('nomos_signup_nudge') === '1'; } catch { return false; } });
+
+  async function runLiveSearch(a) {
+    if (!a) return;
+    setSearching(true); setLiveErr('');
+    try {
+      const res = await fetch('/api/livesearch', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ projektname: a.projektname||proj, einzeiler: a.einzeiler, branche: a.branche, phase: a.phase, region: a.region }) });
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) throw new Error(data.error || ('Fehler '+res.status));
+      setLive(data.programs || []);
+    } catch (e) { setLiveErr(e.message); }
+    setSearching(false);
+  }
+
+  async function savePitch(a, pname) {
+    if (!auth.user) return;
+    try {
+      const r = await fetch('/api/pitches', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ projektname: pname, pitch_text: pitch, analysis: a }) });
+      const d = await r.json(); if (r.ok) setPitchId(d.id);
+    } catch {}
+  }
+
+  function finalize(a, pname) {
+    setAnalysis(a); setPhase('ready'); setPage('home'); setView('dashboard');
+    savePitch(a, pname);
+  }
+
+  async function analyze(overrideText, overrideProj) {
     const text = (overrideText != null ? overrideText : pitch).trim();
-    setError(''); setPitchId(null);
-    setPage('home'); setView('analyze');
+    const pj = (overrideProj != null ? overrideProj : proj).trim();
+    setError(''); setPitchId(null); setLive([]); setQuestions([]); setLiveErr('');
+    setPage('home'); setView('analyze'); setPhase('analyzing');
     try {
       const fd = new FormData();
-      if (proj.trim()) fd.append('projektname', proj.trim());
+      if (pj) fd.append('projektname', pj);
       if (text) fd.append('pitch', text);
       if (file && overrideText == null) fd.append('document', file);
       const res = await fetch('/api/analyze', { method:'POST', body: fd });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || `Fehler ${res.status}`); }
       const data = await res.json();
       setAnalysis(data);
-      const pname = proj.trim() || data.projektname || '';
-      if (!proj.trim() && data.projektname) setProj(data.projektname);
-      setView('dashboard');
-      // Eingeloggt → automatisch im Verlauf speichern.
-      if (auth.user) {
-        try {
-          const r = await fetch('/api/pitches', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ projektname: pname, pitch_text: text, analysis: data }) });
-          const d = await r.json(); if (r.ok) setPitchId(d.id);
-        } catch {}
-      }
+      const pname = pj || data.projektname || '';
+      if (!pj && data.projektname) setProj(data.projektname);
+      // Web-Suche sofort im Hintergrund starten (überlappt mit den Rückfragen).
+      runLiveSearch(data);
+      // Rückfragen holen — bei Bedarf VOR den Ergebnissen stellen.
+      let qs = [];
+      try {
+        const fr = await fetch('/api/followup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ analysis: data }) });
+        if (fr.ok) { const fj = await fr.json(); qs = (fj.questions||[]).slice(0,3); }
+      } catch {}
+      if (qs.length) { setQuestions(qs); setPhase('questions'); }
+      else { finalize(data, pname); }
     } catch (e) {
-      setError(e.message);
-      setView('landing');
+      setError(e.message); setPhase('error'); setView('landing');
     }
   }
-  function useIdeaPlan(planText) { setProj(''); setFile(null); setPitch(planText); analyze(planText); }
+
+  async function submitAnswers(ansArray) {
+    const pname = proj.trim() || (analysis && analysis.projektname) || '';
+    if (ansArray && ansArray.length) {
+      setPhase('finalizing');
+      try {
+        const res = await fetch('/api/rescore', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ analysis, answers: ansArray }) });
+        if (res.ok) { const updated = await res.json(); finalize(updated, pname); return; }
+      } catch {}
+    }
+    finalize(analysis, pname);
+  }
+  function skipQuestions() { finalize(analysis, proj.trim() || (analysis && analysis.projektname) || ''); }
+
+  function useIdeaPlan(planText) {
+    const name = extractPlanTitle(planText) || '';
+    setProj(name); setFile(null); setPitch(planText); analyze(planText, name);
+  }
 
   async function openPitch(id) {
     try {
@@ -1056,21 +1147,27 @@ function App() {
       const p = d.pitch;
       setProj(p.projektname || ''); setPitch(p.pitch_text || ''); setFile(null);
       setAnalysis(p.analysis || {}); setPitchId(p.id); setSelected(null);
+      setLive([]); setQuestions([]); setSearching(false); setLiveErr(''); setPhase('ready');
       setPage('home'); setView('dashboard');
     } catch (e) { setError(e.message); }
   }
 
-  const [page, setPage] = useState('home');
-  function reset() { setView('landing'); setSelected(null); setAnalysis(null); setError(''); setPitchId(null); }
+  function reset() { setView('landing'); setSelected(null); setAnalysis(null); setError(''); setPitchId(null); setPhase('idle'); setLive([]); setQuestions([]); setSearching(false); setLiveErr(''); }
   function go(p) { setPage(p); }
   function startPitch() { setPage('home'); setView('landing'); }
   function requireLogin() { setAuthOpen(true); }
+  function closeNudge() { setNudgeClosed(true); try { localStorage.setItem('nomos_signup_nudge', '1'); } catch {} }
+
+  const flowBusy = phase==='analyzing' || phase==='finalizing' || phase==='questions' || searching;
+  const flowLabel = phase==='questions' ? 'Rückfragen offen' : (phase==='analyzing'||phase==='finalizing') ? 'Analyse läuft …' : searching ? 'Web-Suche läuft …' : '';
+  function resumeFlow() { setPage('home'); setView(phase==='questions' ? 'analyze' : (analysis ? 'dashboard' : 'analyze')); }
 
   useEffect(() => { window.scrollTo({ top:0, behavior:'instant' }); }, [page, view]);
 
   return (
     <div className="min-h-screen bg-cream-100">
-      <Nav page={page} go={go} onLogo={()=>{setPage('home');setView('landing');}} startPitch={startPitch} auth={auth} onLogin={requireLogin} />
+      <Nav page={page} go={go} onLogo={()=>{setPage('home');setView('landing');}} startPitch={startPitch} auth={auth} onLogin={requireLogin}
+        flowBusy={flowBusy} flowLabel={flowLabel} onResume={resumeFlow} />
       {page==='verlauf' ? <Verlauf auth={auth} onLogin={requireLogin} openPitch={openPitch} />
         : page==='profil' ? <Profil auth={auth} onLogin={requireLogin} />
         : page==='businessplan' ? <PageBusinessplan onUseForMatching={useIdeaPlan} />
@@ -1078,19 +1175,20 @@ function App() {
         ? <Marketing page={page} go={go} startPitch={startPitch} />
         : <>
             {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} onIdea={()=>go('businessplan')} onVision={()=>go('vision')} />}
-            {view==='analyze'   && <Analyzing proj={proj} />}
-            {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis}} onUpdate={setAnalysis} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
+            {view==='analyze'   && <Analyzing proj={proj} phase={phase} questions={questions} searching={searching} onSubmit={submitAnswers} onSkip={skipQuestions} />}
+            {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis,live,searching,liveErr}} onReSearch={()=>runLiveSearch(analysis)} onUpdate={setAnalysis} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
             {view==='antrag'    && <Antrag {...{proj,pitch,file,grant:selected,pitchId,loggedIn:!!auth.user}} onBack={()=>setView('dashboard')} onReset={reset} />}
           </>}
       <Footer go={go} startPitch={startPitch} />
       <AuthModal open={authOpen} onClose={()=>setAuthOpen(false)} auth={auth} />
+      {!auth.user && phase==='ready' && !nudgeClosed && <SignupNudge onLogin={requireLogin} onClose={closeNudge} />}
     </div>
   );
 }
 
 const NAV_ITEMS = [['Produkt','produkt'],['Nomos-Engine','engine'],['Förderlinien','foerderlinien'],['Preise','preise'],['Vision','vision']];
 
-function Nav({ page, go, onLogo, startPitch, auth, onLogin }) {
+function Nav({ page, go, onLogo, startPitch, auth, onLogin, flowBusy, flowLabel, onResume }) {
   const [open, setOpen] = useState(false);
   const navTo = (p) => { go(p); setOpen(false); };
   return (
@@ -1109,6 +1207,12 @@ function Nav({ page, go, onLogo, startPitch, auth, onLogin }) {
           ))}
         </nav>
         <div className="flex items-center gap-2">
+          {flowBusy && flowLabel && (
+            <button onClick={onResume} title="Zurück zur laufenden Analyse"
+              className="hidden items-center gap-1.5 rounded-full border border-cobalt/40 bg-cobalt/10 px-3 py-1.5 text-cobalt transition-colors hover:bg-cobalt/20 sm:flex">
+              <span className="dot-pulse" style={{ fontSize:10 }}>●</span>
+              <span className="brand-mono" style={{ fontSize:10, letterSpacing:'0.1em' }}>{flowLabel}</span>
+            </button>)}
           <AccountMenu auth={auth} onLogin={onLogin} go={go} />
           <button onClick={startPitch} className="rounded-full bg-ink-900 px-4 py-2 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Pitch hochladen →</button>
           <button onClick={()=>setOpen(o=>!o)} aria-label="Menü" className="flex h-9 w-9 items-center justify-center rounded-full border border-cream-400 text-ink-900 md:hidden">
@@ -1281,11 +1385,44 @@ const FACTS = [
   'Nomos bewertet Eignung an harten Kriterien — Fokus, Phase, Region.',
   'Ein starker Antrag trennt wirtschaftliche und wissenschaftliche Verwertung.',
 ];
-function Analyzing({ proj }) {
+function Analyzing({ proj, phase, questions, searching, onSubmit, onSkip }) {
   const [step, setStep] = useState(0);
   const [fact, setFact] = useState(0);
+  const [answers, setAnswers] = useState({});
   useEffect(() => { const id = setInterval(()=>setStep(s=>Math.min(s+1, STEPS.length-1)), 2600); return ()=>clearInterval(id); }, []);
   useEffect(() => { const id = setInterval(()=>setFact(f=>(f+1)%FACTS.length), 3600); return ()=>clearInterval(id); }, []);
+
+  // Rückfragen-Schritt: bei Bedarf VOR den Ergebnissen, nahtlos im Ablauf.
+  if (phase === 'questions' && (questions||[]).length) {
+    const submit = () => onSubmit((questions||[]).map((q,i)=>({ frage:q.frage, antwort:(answers[i]||'').trim() })).filter(a=>a.antwort));
+    return (
+      <main className="anim-fadein mx-auto max-w-2xl px-6 py-12 md:py-16">
+        <div className="text-center">
+          <Eyebrow>NOMOS · KURZE RÜCKFRAGEN</Eyebrow>
+          <h2 className="mt-2 font-sans" style={{ fontSize:28, fontWeight:500, letterSpacing:'-0.03em' }}>Zwei, drei Angaben für ein präzises Matching</h2>
+          <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-ink-700">Nomos hat „{proj || 'dein Vorhaben'}" analysiert. Diese Punkte beeinflussen die Förderfähigkeit — beantworte sie kurz oder überspringe sie.</p>
+          {searching && <p className="mt-2 brand-mono text-cobalt" style={{ fontSize:10, letterSpacing:'0.1em' }}><span className="dot-pulse">●</span> WEB-SUCHE LÄUFT BEREITS IM HINTERGRUND …</p>}
+        </div>
+        <div className="mt-7 flex flex-col gap-4 rounded-3xl border border-cream-300 bg-cream-50 p-5 md:p-6">
+          {questions.map((q,i)=>(
+            <div key={i}>
+              <div className="text-sm font-medium text-ink-900">{q.frage}</div>
+              <div className="brand-mono mt-0.5 text-ink-500" style={{ fontSize:10, letterSpacing:'0.06em' }}>WARUM: {q.warum}</div>
+              <div className="mt-2 flex items-center gap-2">
+                <input value={answers[i]||''} onChange={e=>setAnswers(a=>({...a,[i]:e.target.value}))}
+                  placeholder="Deine Antwort … (tippen oder diktieren)"
+                  className="w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-2.5 text-sm outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
+                <MicButton onText={(t)=>setAnswers(a=>({...a,[i]:((a[i]||'').trim()? a[i].trim()+' ':'')+t}))} />
+              </div>
+            </div>))}
+        </div>
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <button onClick={submit} className="rounded-full bg-ink-900 px-6 py-3 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Antworten & Treffer anzeigen →</button>
+          <button onClick={onSkip} className="rounded-full border border-cream-400 px-5 py-3 text-sm text-ink-700 transition-colors hover:border-ink-900 hover:text-ink-900">Überspringen</button>
+        </div>
+      </main>
+    );
+  }
   return (
     <main className="anim-fadein mx-auto flex min-h-[70vh] max-w-3xl flex-col items-center justify-center px-6 py-12 text-center">
       <div className="relative flex h-28 w-28 items-center justify-center rounded-3xl bg-ink-900">
@@ -1394,38 +1531,20 @@ function FollowupPanel({ analysis, onUpdate }) {
   );
 }
 
-function Dashboard({ proj, pitch, file, analysis, onUpdate, onSelect }) {
+function Dashboard({ proj, pitch, file, analysis, live, searching, liveErr, onReSearch, onUpdate, onSelect }) {
   const a = analysis || {};
   const sourceText = pitch.trim() || a.einzeiler || '';
   const [translated, setTranslated] = useState('');
   const [translating, setTranslating] = useState(false);
-  const [live, setLive] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [liveDone, setLiveDone] = useState(false);
-  const [liveErr, setLiveErr] = useState('');
-
-  async function liveSearch() {
-    setSearching(true); setLiveErr(''); setLiveDone(false);
-    try {
-      const res = await fetch('/api/livesearch', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ projektname: a.projektname||proj, einzeiler: a.einzeiler, branche: a.branche, phase: a.phase, region: a.region }) });
-      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error||`Fehler ${res.status}`); }
-      const data = await res.json();
-      setLive(data.programs || []); setLiveDone(true);
-    } catch (e) { setLiveErr(e.message); }
-    setSearching(false);
-  }
-  // Web-Suche läuft automatisch mit (primäre Matching-Quelle, nicht nur die kuratierten Töpfe).
-  const startedLive = useRef(false);
-  useEffect(() => { if (startedLive.current) return; startedLive.current = true; liveSearch(); }, []);
-  // Kuratierte Treffer + Web-Treffer zu einer Top-Liste mergen (dedupliziert, sortiert).
+  // Kuratierte Treffer + Web-Treffer mergen (dedupliziert, abgelaufene raus, sortiert).
   const combined = useMemo(() => {
     const seen = new Set(); const out = [];
-    for (const g of [...(a.matches || []), ...live]) {
+    for (const g of [...(a.matches || []), ...(live || [])]) {
+      if (g.antragMoeglich === false) continue;
       const k = (g.name || '').toLowerCase().trim();
       if (!k || seen.has(k)) continue; seen.add(k); out.push(g);
     }
-    return out.sort((x, y) => (y.fit || 0) - (x.fit || 0)).slice(0, 8);
+    return out.sort((x, y) => (y.fit || 0) - (x.fit || 0)).slice(0, 10);
   }, [a.matches, live]);
 
   async function translate() {
@@ -1468,7 +1587,7 @@ function Dashboard({ proj, pitch, file, analysis, onUpdate, onSelect }) {
           <Eyebrow>SCHRITT 2 · TOP-FÖRDERUNGEN (KURATIERT + WEB)</Eyebrow>
           <span className="brand-mono flex items-center gap-1.5 text-cobalt" style={{ fontSize:10, letterSpacing:'0.1em' }}>
             {searching ? <><span className="spin"><NomosMark size={12} color="var(--cobalt)" /></span> WEB-SUCHE LÄUFT …</>
-              : <button onClick={liveSearch} className="hover:underline">↻ ERNEUT IM WEB SUCHEN</button>}
+              : <button onClick={onReSearch} className="hover:underline">↻ ERNEUT IM WEB SUCHEN</button>}
           </span>
         </div>
         {combined.length===0 && !searching
@@ -1559,6 +1678,7 @@ function MatchRow({ g, delay, onSelect }) {
             <span className="brand-mono rounded-full bg-cream-200 px-2 py-0.5 text-ink-700" style={{ fontSize:9, letterSpacing:'0.06em' }}>{g.region}</span>
             <span className="brand-mono rounded-full bg-cream-200 px-2 py-0.5 text-ink-700" style={{ fontSize:9, letterSpacing:'0.06em' }}>{g.amount}</span>
             {g.fundingRate && <span className="brand-mono rounded-full bg-cream-200 px-2 py-0.5 text-ink-700" style={{ fontSize:9, letterSpacing:'0.06em' }}>{g.fundingRate}</span>}
+            {g.frist && g.frist!=='k.A.' && <span className="brand-mono rounded-full bg-cobalt/10 px-2 py-0.5 text-cobalt" style={{ fontSize:9, letterSpacing:'0.06em' }}>⏱ {g.frist}</span>}
           </div>
           {g.summary && <p className="mt-2 text-sm leading-relaxed text-ink-700">{g.summary}</p>}
           <p className="mt-1.5 text-sm leading-relaxed text-ink-900"><span className="brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.1em' }}>WARUM: </span>{g.begruendung}</p>
@@ -1898,6 +2018,39 @@ async function readStream(res, onChunk) {
     if (done) break;
     onChunk(dec.decode(value, { stream:true }));
   }
+}
+
+/* ── Download- & Druck-Helfer ──────────────────────────────────────────────── */
+function downloadBlob(blob, name) {
+  const u = URL.createObjectURL(blob); const a = document.createElement('a');
+  a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(u);
+}
+const safeFile = (s) => (s || 'Telos').replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '') || 'Telos';
+// Projektname aus dem Businessplan-Entwurf lesen ("# Businessplan (Entwurf) — <Name>").
+function extractPlanTitle(md) {
+  const m = String(md || '').match(/^#\s*Businessplan[^\n]*?[—\-]\s*(.+?)\s*$/m);
+  if (m && m[1]) return m[1].trim();
+  const h = String(md || '').match(/^#\s+(.+?)\s*$/m);
+  return h ? h[1].replace(/^Businessplan[^\wÄÖÜ]*/i, '').trim() : '';
+}
+// Sanitisierte HTML in einem Druckfenster öffnen → Nutzer wählt „Als PDF speichern".
+function printHtmlAsPdf(innerHtml, title) {
+  const w = window.open('', '_blank');
+  if (!w) { alert('Bitte Pop-ups für diese Seite erlauben, um als PDF zu speichern.'); return; }
+  w.document.write(`<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${title || 'Telos · Nomos'}</title>
+    <style>
+      @page { size: A4; margin: 22mm 18mm; }
+      body { font-family: Georgia, 'Times New Roman', serif; color:#26221C; line-height:1.55; font-size:11pt; }
+      h1,h2,h3 { font-family: Georgia, serif; color:#26221C; line-height:1.2; margin:1.1em 0 .4em; }
+      h1 { font-size:20pt; } h2 { font-size:15pt; } h3 { font-size:12.5pt; }
+      p,li { font-size:11pt; } ul,ol { padding-left:1.2em; }
+      table { width:100%; border-collapse:collapse; margin:.6em 0; }
+      th,td { border:1px solid #C8BD9F; padding:6px 8px; text-align:left; font-size:10pt; }
+      .telos-foot { margin-top:14mm; font-size:8pt; color:#736C63; letter-spacing:.12em; text-transform:uppercase; }
+    </style></head>
+    <body>${innerHtml}<div class="telos-foot">Telos · Nomos — Entwurf, bitte „[BITTE ERGÄNZEN]\"-Stellen prüfen</div></body></html>`);
+  w.document.close(); w.focus();
+  setTimeout(() => { w.print(); }, 350);
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);

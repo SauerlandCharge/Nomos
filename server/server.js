@@ -24,7 +24,7 @@ const MODELS = {
 const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-22.1";
+const VERSION = "2026-05-22.2";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -134,7 +134,7 @@ app.post("/api/analyze", upload.single("document"), async (req, res) => {
         {
           role: "user",
           content: [
-            { type: "text", text: "Analysiere den folgenden Businessplan / das Pitch-Deck und finde passende Förderlinien:" },
+            { type: "text", text: `Heutiges Datum: ${new Date().toISOString().slice(0, 10)}.\nAnalysiere den folgenden Businessplan / das Pitch-Deck und finde passende Förderlinien:` },
             ...planBlocks,
           ],
         },
@@ -193,6 +193,7 @@ app.post("/api/rescore", async (req, res) => {
     }
     const qa = answers.map((a) => `F: ${a.frage}\nA: ${a.antwort}`).join("\n\n");
     const context =
+      `Heutiges Datum: ${new Date().toISOString().slice(0, 10)}\n\n` +
       `ERSTANALYSE (JSON):\n${JSON.stringify({ ...analysis, matches: (analysis.matches || []).map((m) => ({ id: m.id, fit: m.fit, begruendung: m.begruendung })) })}\n\n` +
       `ZUSÄTZLICHE ANTWORTEN DER GRÜNDER:INNEN:\n${qa}`;
 
@@ -220,19 +221,21 @@ app.post("/api/livesearch", async (req, res) => {
     const { projektname, einzeiler, branche, phase, region } = req.body || {};
     if (!einzeiler && !projektname) return res.status(400).json({ error: "Keine Vorhabensbeschreibung." });
 
+    const heute = new Date().toISOString().slice(0, 10);
     const query =
+      `Heutiges Datum: ${heute}\n` +
       `Vorhaben: ${projektname || "(unbenannt)"}\n` +
       `Beschreibung: ${einzeiler || ""}\n` +
       `Branche: ${branche || "k.A."}\nPhase: ${phase || "k.A."}\nRegion: ${region || "k.A."}\n\n` +
-      `Finde aktuelle, reale öffentliche Förderprogramme, die zu diesem Vorhaben passen.`;
+      `Finde möglichst ALLE aktuell beantragbaren, realen öffentlichen Förderprogramme, die zu diesem Vorhaben passen. Prüfe je Programm, ob heute (${heute}) eine Antragstellung noch möglich ist, und lasse abgelaufene Programme weg.`;
 
     let messages = [{ role: "user", content: query }];
     let final = null;
     const c = client();
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       const resp = await c.messages.create({
         model: MODEL,
-        max_tokens: 6000,
+        max_tokens: 8000,
         thinking: { type: "adaptive" },
         output_config: { effort: "medium" },
         system: [{ type: "text", text: LIVESEARCH_SYSTEM, cache_control: { type: "ephemeral" } }],
@@ -339,20 +342,27 @@ function extractPrograms(text) {
     const parsed = JSON.parse(jsonStr.trim());
     const list = Array.isArray(parsed) ? parsed : parsed.programs || [];
     return list
-      .map((p, idx) => ({
-        id: `live-${idx}`,
-        live: true,
-        name: String(p.name || "").slice(0, 200),
-        provider: String(p.provider || "").slice(0, 120),
-        region: String(p.region || "").slice(0, 60),
-        amount: String(p.amount || "k.A.").slice(0, 120),
-        fit: Math.max(0, Math.min(100, parseInt(p.fit, 10) || 60)),
-        begruendung: String(p.begruendung || "").slice(0, 600),
-        url: typeof p.url === "string" && /^https?:\/\//.test(p.url) ? p.url : null,
-      }))
-      .filter((p) => p.name)
+      .map((p, idx) => {
+        const frist = String(p.frist || "").slice(0, 80);
+        const abgelaufen = /abgelaufen|verstrichen|geschlossen|beendet/i.test(frist);
+        const antragMoeglich = p.antragMoeglich === false ? false : !abgelaufen;
+        return {
+          id: `live-${idx}`,
+          live: true,
+          name: String(p.name || "").slice(0, 200),
+          provider: String(p.provider || "").slice(0, 120),
+          region: String(p.region || "").slice(0, 60),
+          amount: String(p.amount || "k.A.").slice(0, 120),
+          frist: frist || "k.A.",
+          antragMoeglich,
+          fit: Math.max(0, Math.min(100, parseInt(p.fit, 10) || 60)),
+          begruendung: String(p.begruendung || "").slice(0, 600),
+          url: typeof p.url === "string" && /^https?:\/\//.test(p.url) ? p.url : null,
+        };
+      })
+      .filter((p) => p.name && p.antragMoeglich)
       .sort((a, b) => b.fit - a.fit)
-      .slice(0, 5);
+      .slice(0, 10);
   } catch {
     return [];
   }
