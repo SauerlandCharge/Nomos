@@ -1058,8 +1058,7 @@ function App() {
   const [authOpen, setAuthOpen] = useState(false);
 
   // Matching-Pipeline — liegt in App, läuft daher beim Navigieren weiter und geht nicht verloren.
-  const [phase, setPhase] = useState('idle'); // idle|analyzing|questions|finalizing|ready|error
-  const [questions, setQuestions] = useState([]);
+  const [phase, setPhase] = useState('idle'); // idle|analyzing|ready|error
   const [live, setLive] = useState([]);
   const [searching, setSearching] = useState(false);
   const [liveErr, setLiveErr] = useState('');
@@ -1094,7 +1093,7 @@ function App() {
   async function analyze(overrideText, overrideProj) {
     const text = (overrideText != null ? overrideText : pitch).trim();
     const pj = (overrideProj != null ? overrideProj : proj).trim();
-    setError(''); setPitchId(null); setLive([]); setQuestions([]); setLiveErr('');
+    setError(''); setPitchId(null); setLive([]); setLiveErr('');
     setPage('home'); setView('analyze'); setPhase('analyzing');
     try {
       const fd = new FormData();
@@ -1104,36 +1103,17 @@ function App() {
       const res = await fetch('/api/analyze', { method:'POST', body: fd });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || `Fehler ${res.status}`); }
       const data = await res.json();
-      setAnalysis(data);
       const pname = pj || data.projektname || '';
       if (!pj && data.projektname) setProj(data.projektname);
-      // Web-Suche sofort im Hintergrund starten (überlappt mit den Rückfragen).
+      // Ergebnisse SOFORT zeigen — nicht auf Web-Suche oder Rückfragen warten.
+      finalize(data, pname);
+      // Web-Suche im Hintergrund (Treffer mergen sich live in 'combined').
+      // Rückfragen sind optional und laufen on-demand über das FollowupPanel auf dem Dashboard.
       runLiveSearch(data);
-      // Rückfragen holen — bei Bedarf VOR den Ergebnissen stellen.
-      let qs = [];
-      try {
-        const fr = await fetch('/api/followup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ analysis: data }) });
-        if (fr.ok) { const fj = await fr.json(); qs = (fj.questions||[]).slice(0,3); }
-      } catch {}
-      if (qs.length) { setQuestions(qs); setPhase('questions'); }
-      else { finalize(data, pname); }
     } catch (e) {
       setError(e.message); setPhase('error'); setView('landing');
     }
   }
-
-  async function submitAnswers(ansArray) {
-    const pname = proj.trim() || (analysis && analysis.projektname) || '';
-    if (ansArray && ansArray.length) {
-      setPhase('finalizing');
-      try {
-        const res = await fetch('/api/rescore', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ analysis, answers: ansArray }) });
-        if (res.ok) { const updated = await res.json(); finalize(updated, pname); return; }
-      } catch {}
-    }
-    finalize(analysis, pname);
-  }
-  function skipQuestions() { finalize(analysis, proj.trim() || (analysis && analysis.projektname) || ''); }
 
   function useIdeaPlan(planText) {
     const name = extractPlanTitle(planText) || '';
@@ -1147,20 +1127,20 @@ function App() {
       const p = d.pitch;
       setProj(p.projektname || ''); setPitch(p.pitch_text || ''); setFile(null);
       setAnalysis(p.analysis || {}); setPitchId(p.id); setSelected(null);
-      setLive([]); setQuestions([]); setSearching(false); setLiveErr(''); setPhase('ready');
+      setLive([]); setSearching(false); setLiveErr(''); setPhase('ready');
       setPage('home'); setView('dashboard');
     } catch (e) { setError(e.message); }
   }
 
-  function reset() { setView('landing'); setSelected(null); setAnalysis(null); setError(''); setPitchId(null); setPhase('idle'); setLive([]); setQuestions([]); setSearching(false); setLiveErr(''); }
+  function reset() { setView('landing'); setSelected(null); setAnalysis(null); setError(''); setPitchId(null); setPhase('idle'); setLive([]); setSearching(false); setLiveErr(''); }
   function go(p) { setPage(p); }
   function startPitch() { setPage('home'); setView('landing'); }
   function requireLogin() { setAuthOpen(true); }
   function closeNudge() { setNudgeClosed(true); try { localStorage.setItem('nomos_signup_nudge', '1'); } catch {} }
 
-  const flowBusy = phase==='analyzing' || phase==='finalizing' || phase==='questions' || searching;
-  const flowLabel = phase==='questions' ? 'Rückfragen offen' : (phase==='analyzing'||phase==='finalizing') ? 'Analyse läuft …' : searching ? 'Web-Suche läuft …' : '';
-  function resumeFlow() { setPage('home'); setView(phase==='questions' ? 'analyze' : (analysis ? 'dashboard' : 'analyze')); }
+  const flowBusy = phase==='analyzing' || searching;
+  const flowLabel = phase==='analyzing' ? 'Analyse läuft …' : searching ? 'Web-Suche läuft …' : '';
+  function resumeFlow() { setPage('home'); setView(analysis ? 'dashboard' : 'analyze'); }
 
   useEffect(() => { window.scrollTo({ top:0, behavior:'instant' }); }, [page, view]);
 
@@ -1175,7 +1155,7 @@ function App() {
         ? <Marketing page={page} go={go} startPitch={startPitch} />
         : <>
             {view==='landing'   && <Landing {...{proj,setProj,pitch,setPitch,file,setFile,error,onAnalyze:analyze}} onIdea={()=>go('businessplan')} onVision={()=>go('vision')} />}
-            {view==='analyze'   && <Analyzing proj={proj} phase={phase} questions={questions} searching={searching} onSubmit={submitAnswers} onSkip={skipQuestions} />}
+            {view==='analyze'   && <Analyzing proj={proj} />}
             {view==='dashboard' && <Dashboard {...{proj,pitch,file,analysis,live,searching,liveErr}} onReSearch={()=>runLiveSearch(analysis)} onUpdate={setAnalysis} onSelect={(g)=>{setSelected(g);setView('antrag');}} />}
             {view==='antrag'    && <Antrag {...{proj,pitch,file,grant:selected,pitchId,loggedIn:!!auth.user}} onBack={()=>setView('dashboard')} onReset={reset} />}
           </>}
@@ -1385,44 +1365,12 @@ const FACTS = [
   'Nomos bewertet Eignung an harten Kriterien — Fokus, Phase, Region.',
   'Ein starker Antrag trennt wirtschaftliche und wissenschaftliche Verwertung.',
 ];
-function Analyzing({ proj, phase, questions, searching, onSubmit, onSkip }) {
+function Analyzing({ proj }) {
   const [step, setStep] = useState(0);
   const [fact, setFact] = useState(0);
-  const [answers, setAnswers] = useState({});
   useEffect(() => { const id = setInterval(()=>setStep(s=>Math.min(s+1, STEPS.length-1)), 2600); return ()=>clearInterval(id); }, []);
   useEffect(() => { const id = setInterval(()=>setFact(f=>(f+1)%FACTS.length), 3600); return ()=>clearInterval(id); }, []);
 
-  // Rückfragen-Schritt: bei Bedarf VOR den Ergebnissen, nahtlos im Ablauf.
-  if (phase === 'questions' && (questions||[]).length) {
-    const submit = () => onSubmit((questions||[]).map((q,i)=>({ frage:q.frage, antwort:(answers[i]||'').trim() })).filter(a=>a.antwort));
-    return (
-      <main className="anim-fadein mx-auto max-w-2xl px-6 py-12 md:py-16">
-        <div className="text-center">
-          <Eyebrow>NOMOS · KURZE RÜCKFRAGEN</Eyebrow>
-          <h2 className="mt-2 font-sans" style={{ fontSize:28, fontWeight:500, letterSpacing:'-0.03em' }}>Zwei, drei Angaben für ein präzises Matching</h2>
-          <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-ink-700">Nomos hat „{proj || 'dein Vorhaben'}" analysiert. Diese Punkte beeinflussen die Förderfähigkeit — beantworte sie kurz oder überspringe sie.</p>
-          {searching && <p className="mt-2 brand-mono text-cobalt" style={{ fontSize:10, letterSpacing:'0.1em' }}><span className="dot-pulse">●</span> WEB-SUCHE LÄUFT BEREITS IM HINTERGRUND …</p>}
-        </div>
-        <div className="mt-7 flex flex-col gap-4 rounded-3xl border border-cream-300 bg-cream-50 p-5 md:p-6">
-          {questions.map((q,i)=>(
-            <div key={i}>
-              <div className="text-sm font-medium text-ink-900">{q.frage}</div>
-              <div className="brand-mono mt-0.5 text-ink-500" style={{ fontSize:10, letterSpacing:'0.06em' }}>WARUM: {q.warum}</div>
-              <div className="mt-2 flex items-center gap-2">
-                <input value={answers[i]||''} onChange={e=>setAnswers(a=>({...a,[i]:e.target.value}))}
-                  placeholder="Deine Antwort … (tippen oder diktieren)"
-                  className="w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-2.5 text-sm outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
-                <MicButton onText={(t)=>setAnswers(a=>({...a,[i]:((a[i]||'').trim()? a[i].trim()+' ':'')+t}))} />
-              </div>
-            </div>))}
-        </div>
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <button onClick={submit} className="rounded-full bg-ink-900 px-6 py-3 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Antworten & Treffer anzeigen →</button>
-          <button onClick={onSkip} className="rounded-full border border-cream-400 px-5 py-3 text-sm text-ink-700 transition-colors hover:border-ink-900 hover:text-ink-900">Überspringen</button>
-        </div>
-      </main>
-    );
-  }
   return (
     <main className="anim-fadein mx-auto flex min-h-[70vh] max-w-3xl flex-col items-center justify-center px-6 py-12 text-center">
       <div className="relative flex h-28 w-28 items-center justify-center rounded-3xl bg-ink-900">
@@ -1544,7 +1492,7 @@ function Dashboard({ proj, pitch, file, analysis, live, searching, liveErr, onRe
       const k = (g.name || '').toLowerCase().trim();
       if (!k || seen.has(k)) continue; seen.add(k); out.push(g);
     }
-    return out.sort((x, y) => (y.fit || 0) - (x.fit || 0)).slice(0, 10);
+    return out.sort((x, y) => (y.fit || 0) - (x.fit || 0));
   }, [a.matches, live]);
 
   async function translate() {
@@ -1828,6 +1776,19 @@ function Antrag({ proj, pitch, file, grant, pitchId, loggedIn, onBack, onReset }
     } catch (e) { setFormMsg('Fehler: '+e.message); }
     setFormBusy(false);
   }
+  async function autoFillForm(){
+    setFormBusy(true); setFormMsg('Nomos sucht das passende Formular und füllt es aus …');
+    try {
+      const body = { content: text, projektname: proj || grant.name, name: grant.name, provider: grant.provider, region: grant.region };
+      if (grant.formUrl) body.formUrl = grant.formUrl;
+      const res = await fetch('/api/fillform-url', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || ('Fehler '+res.status)); }
+      const n = res.headers.get('X-Fields-Filled');
+      triggerDownload(await res.blob(), (proj || 'Antrag').replace(/[^\w]+/g,'_') + '_ausgefuellt.pdf');
+      setFormMsg('✓ Passendes Formular automatisch geladen & befüllt'+(n?` (${n} Felder)`:'')+' — heruntergeladen. Bitte prüfen & offene Felder ergänzen.');
+    } catch (e) { setFormMsg('Automatisch nicht möglich ('+e.message+'). Bitte Formular manuell hochladen.'); }
+    setFormBusy(false);
+  }
 
   return (
     <main className="anim-fadein mx-auto max-w-4xl px-6 pb-24 pt-8 md:px-12">
@@ -1921,14 +1882,17 @@ function Antrag({ proj, pitch, file, grant, pitchId, loggedIn, onBack, onReset }
       {done && !error && (
         <div className="no-print mb-8 rounded-3xl border border-cobalt/40 bg-cobalt/5 p-5">
           <div className="flex items-center gap-2"><span className="brand-mono rounded-full bg-cobalt px-2 py-0.5 text-cream-50" style={{ fontSize:9, letterSpacing:'0.12em' }}>NEU</span><Eyebrow>OFFIZIELLES FORMULAR AUTOMATISCH AUSFÜLLEN</Eyebrow></div>
-          <p className="mt-2 text-sm leading-relaxed text-ink-700">Lade das ausfüllbare <strong>PDF-Formular</strong> der Förderung hoch (z. B. aus der Detailansicht). Nomos überträgt die Inhalte deines Entwurfs in die passenden Felder — die letzten 20 % ergänzt du.</p>
+          <p className="mt-2 text-sm leading-relaxed text-ink-700">Nomos sucht das passende <strong>PDF-Formular</strong> der Förderung, lädt es und überträgt die Inhalte deines Entwurfs in die richtigen Felder — die letzten 20 % ergänzt du. Findet Nomos kein ausfüllbares Formular, lade es einfach selbst hoch.</p>
           <input ref={formInputRef} type="file" accept=".pdf,application/pdf" className="hidden" onChange={e=>{ const f=e.target.files?.[0]; if(f) fillForm(f); e.target.value=''; }} />
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button onClick={()=>formInputRef.current?.click()} disabled={formBusy} className="inline-flex items-center gap-2 rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100 transition-transform enabled:hover:scale-[1.03] disabled:opacity-40">
-              {formBusy ? <><span className="spin"><NomosMark size={14} color="var(--honey)" /></span> befüllt …</> : 'PDF-Formular hochladen & ausfüllen'}
+            <button onClick={autoFillForm} disabled={formBusy} className="inline-flex items-center gap-2 rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100 transition-transform enabled:hover:scale-[1.03] disabled:opacity-40">
+              {formBusy ? <><span className="spin"><NomosMark size={14} color="var(--honey)" /></span> befüllt …</> : 'Passendes Formular holen & ausfüllen'}
             </button>
-            {formMsg && <span className="text-sm text-ink-700">{formMsg}</span>}
+            <button onClick={()=>formInputRef.current?.click()} disabled={formBusy} className="rounded-full border border-cream-400 px-5 py-2.5 text-sm text-ink-900 transition-colors enabled:hover:border-ink-900 disabled:opacity-40">
+              Stattdessen PDF hochladen
+            </button>
           </div>
+          {formMsg && <p className="mt-2 text-sm text-ink-700">{formMsg}</p>}
           <p className="mt-2 brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.1em' }}>● NUR AUSFÜLLBARE PDF-FORMULARE (ACROFORM). KEIN AUTOMATISCHES ABSENDEN AN BEHÖRDENPORTALE.</p>
         </div>)}
 

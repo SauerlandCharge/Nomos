@@ -24,7 +24,7 @@ const MODELS = {
 const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-22.2";
+const VERSION = "2026-05-22.3";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -123,10 +123,10 @@ app.post("/api/analyze", upload.single("document"), async (req, res) => {
 
     const stream = client().messages.stream({
       model: MODEL,
-      max_tokens: 16000,
+      max_tokens: 6000,
       thinking: { type: "adaptive" },
       output_config: {
-        effort: "high",
+        effort: "medium",
         format: { type: "json_schema", schema: ANALYZE_SCHEMA },
       },
       system: [{ type: "text", text: ANALYZE_SYSTEM, cache_control: { type: "ephemeral" } }],
@@ -169,7 +169,6 @@ app.post("/api/followup", async (req, res) => {
     const stream = client().messages.stream({
       model: MODELS.fast,
       max_tokens: 4000,
-      thinking: { type: "adaptive" },
       output_config: { effort: "medium", format: { type: "json_schema", schema: FOLLOWUP_SCHEMA } },
       system: [{ type: "text", text: FOLLOWUP_SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: `Finde offene, entscheidende Rückfragen für dieses Vorhaben:\n\n${context}` }],
@@ -199,9 +198,9 @@ app.post("/api/rescore", async (req, res) => {
 
     const stream = client().messages.stream({
       model: MODEL,
-      max_tokens: 16000,
+      max_tokens: 6000,
       thinking: { type: "adaptive" },
-      output_config: { effort: "high", format: { type: "json_schema", schema: ANALYZE_SCHEMA } },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: ANALYZE_SCHEMA } },
       system: [{ type: "text", text: RESCORE_SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: `Bewerte das Matching mit den Zusatzinfos neu:\n\n${context}` }],
     });
@@ -259,33 +258,38 @@ app.post("/api/livesearch", async (req, res) => {
   }
 });
 
+// Konkrete Programm-/Formular-URL per Web-Suche auflösen (für /api/resolve und Auto-Formular).
+async function resolveProgram({ name, provider, region }) {
+  const query = `Programm: ${name}${provider ? " · " + provider : ""}${region ? " · " + region : ""}\nFinde die konkrete offizielle Programmseite und ggf. das Antragsformular.`;
+  let messages = [{ role: "user", content: query }];
+  let final = null;
+  const c = client();
+  for (let i = 0; i < 5; i++) {
+    const resp = await c.messages.create({
+      model: MODELS.deep,
+      max_tokens: 3000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
+      system: [{ type: "text", text: RESOLVE_SYSTEM, cache_control: { type: "ephemeral" } }],
+      tools: [{ type: "web_search_20260209", name: "web_search" }],
+      messages,
+    });
+    if (resp.stop_reason === "pause_turn") { messages = [{ role: "user", content: query }, { role: "assistant", content: resp.content }]; continue; }
+    final = resp; break;
+  }
+  if (!final) throw new Error("Auflösung nicht abgeschlossen.");
+  const txt = final.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  const obj = extractJson(txt) || {};
+  const httpOk = (u) => (typeof u === "string" && /^https?:\/\//.test(u) ? u : null);
+  return { url: httpOk(obj.url), formUrl: httpOk(obj.formUrl), hinweis: String(obj.hinweis || "").slice(0, 300) };
+}
+
 // ── /api/resolve (konkrete Programm-URL + Formular per Web-Suche) ─────────────
 app.post("/api/resolve", async (req, res) => {
   try {
     const { name, provider, region } = req.body || {};
     if (!name) return res.status(400).json({ error: "Kein Programmname." });
-    const query = `Programm: ${name}${provider ? " · " + provider : ""}${region ? " · " + region : ""}\nFinde die konkrete offizielle Programmseite und ggf. das Antragsformular.`;
-    let messages = [{ role: "user", content: query }];
-    let final = null;
-    const c = client();
-    for (let i = 0; i < 5; i++) {
-      const resp = await c.messages.create({
-        model: MODELS.deep,
-        max_tokens: 3000,
-        thinking: { type: "adaptive" },
-        output_config: { effort: "low" },
-        system: [{ type: "text", text: RESOLVE_SYSTEM, cache_control: { type: "ephemeral" } }],
-        tools: [{ type: "web_search_20260209", name: "web_search" }],
-        messages,
-      });
-      if (resp.stop_reason === "pause_turn") { messages = [{ role: "user", content: query }, { role: "assistant", content: resp.content }]; continue; }
-      final = resp; break;
-    }
-    if (!final) throw new Error("Auflösung nicht abgeschlossen.");
-    const txt = final.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
-    const obj = extractJson(txt) || {};
-    const httpOk = (u) => typeof u === "string" && /^https?:\/\//.test(u) ? u : null;
-    res.json({ url: httpOk(obj.url), formUrl: httpOk(obj.formUrl), hinweis: String(obj.hinweis || "").slice(0, 300) });
+    res.json(await resolveProgram({ name, provider, region }));
   } catch (err) { sendError(res, err); }
 });
 
@@ -362,7 +366,7 @@ function extractPrograms(text) {
       })
       .filter((p) => p.name && p.antragMoeglich)
       .sort((a, b) => b.fit - a.fit)
-      .slice(0, 10);
+      .slice(0, 50);
   } catch {
     return [];
   }
@@ -560,7 +564,6 @@ app.post("/api/compliance", async (req, res) => {
     const stream = client().messages.stream({
       model: MODELS.fast,
       max_tokens: 4000,
-      thinking: { type: "adaptive" },
       output_config: { effort: "medium", format: { type: "json_schema", schema: COMPLIANCE_SCHEMA } },
       system: [{ type: "text", text: complianceSystem(grant), cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: `Prüfe diesen Antragsentwurf:\n\n${String(content).slice(0, 60000)}` }],
@@ -584,7 +587,6 @@ app.post("/api/checklist", async (req, res) => {
     const stream = client().messages.stream({
       model: MODELS.fast,
       max_tokens: 3000,
-      thinking: { type: "adaptive" },
       output_config: { effort: "medium", format: { type: "json_schema", schema: CHECKLIST_SCHEMA } },
       system: [{ type: "text", text: checklistSystem(grant), cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: plan ? `Vorhaben-Kontext:\n${plan}\n\nErstelle die Checkliste.` : "Erstelle die Checkliste für diese Förderlinie." }],
@@ -614,39 +616,91 @@ const FILLFORM_SCHEMA = {
   },
   required: ["fields"],
 };
+// KI-Mapping der Antrags-/Plan-Inhalte auf die Formularfelder + Befüllung.
+// Wirft mit aussagekräftiger Meldung, wenn kein ausfüllbares AcroForm vorliegt.
+async function fillPdf(pdfBuffer, content) {
+  let fields;
+  try { fields = await readFields(pdfBuffer); }
+  catch { const e = new Error("PDF konnte nicht gelesen werden."); e.status = 400; throw e; }
+  if (!fields.length) { const e = new Error("Kein ausfüllbares Formular (AcroForm-Felder) erkannt."); e.status = 400; throw e; }
+
+  const context = String(content || "").slice(0, 50000);
+  const fieldList = fields
+    .map((f) => `- ${f.name} (${f.type})${f.options && f.options.length ? ` — erlaubte Werte: ${f.options.join(" | ")}` : ""}`)
+    .join("\n");
+  const sys = `Du bist „Nomos". Fülle die Felder eines deutschen Förder-/Antragsformulars auf Basis des bereitgestellten Antrags/Businessplans aus.
+Regeln:
+- Nutze NUR Informationen aus dem Kontext. Felder ohne belegbare Info LEER lassen (weglassen), niemals raten.
+- Auswahl-/Radio-/Dropdown-Felder: gib GENAU einen der unter „erlaubte Werte" gelisteten Werte zurück (exakte Schreibweise). Passt kein gelisteter Wert, lass das Feld weg.
+- Anrede/Geschlecht NUR setzen, wenn das Geschlecht der Person eindeutig aus dem Kontext hervorgeht; bei Unklarheit weglassen (nicht raten).
+- Datumsformat TT.MM.JJJJ. Checkboxen: "Ja" oder weglassen.
+- Kurze Faktenfelder (Name, Ort, Datum, Beträge): knapp und korrekt.
+- Lange Freitextfelder (Feldname enthält z. B. Vorhaben, Beschreibung, Projekt, Ziele, Zusammenfassung, Darstellung): AUSFÜHRLICH, fachlich präzise und in formellem Behördendeutsch verschriftlichen — vollständige Sätze, mehrere Sätze/Absätze, nominalstilbetont, ohne Marketing. Nutze den Antragsentwurf als Grundlage.
+Gib ausschließlich das JSON-Schema zurück (Liste {name,value} nur für befüllbare Felder).`;
+  const stream = client().messages.stream({
+    model: MODELS.deep,
+    max_tokens: 16000,
+    thinking: { type: "adaptive" },
+    output_config: { effort: "medium", format: { type: "json_schema", schema: FILLFORM_SCHEMA } },
+    system: [{ type: "text", text: sys }],
+    messages: [{ role: "user", content: `FORMULARFELDER:\n${fieldList}\n\nANTRAG/BUSINESSPLAN:\n${context}` }],
+  });
+  const message = await stream.finalMessage();
+  const tb = message.content.find((b) => b.type === "text");
+  let mapping = {};
+  try { for (const f of (JSON.parse(tb.text).fields || [])) if (f && f.name) mapping[f.name] = f.value; } catch {}
+  return fillFields(pdfBuffer, mapping);
+}
+
+function sendFilledPdf(res, buffer, filled, projektname) {
+  const safe = String(projektname || "Antrag").replace(/[^\w]+/g, "_").slice(0, 60) || "Antrag";
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${safe}_ausgefuellt.pdf"`);
+  res.setHeader("X-Fields-Filled", String(filled));
+  res.send(buffer);
+}
+
 app.post("/api/fillform", upload.single("form"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Bitte ein ausfüllbares PDF-Formular hochladen." });
-    let fields;
-    try { fields = await readFields(req.file.buffer); }
-    catch { return res.status(400).json({ error: "PDF konnte nicht gelesen werden." }); }
-    if (!fields.length) return res.status(400).json({ error: "Kein ausfüllbares Formular (AcroForm-Felder) erkannt." });
-
-    const context = String(req.body?.content || "").slice(0, 50000);
-    const fieldList = fields.map((f) => `- ${f.name} (${f.type})`).join("\n");
-    const sys = `Du bist „Nomos". Fülle die Felder eines deutschen Förder-/Antragsformulars auf Basis des bereitgestellten Antrags/Businessplans aus.
-Regeln: Nutze NUR Informationen aus dem Kontext. Felder ohne belegbare Info LEER lassen (nicht erraten). Datumsformat TT.MM.JJJJ. Checkboxen: "Ja"/"" verwenden. Werte knapp und korrekt.
-Gib ausschließlich das JSON-Schema zurück (Liste {name,value} nur für befüllbare Felder).`;
-    const stream = client().messages.stream({
-      model: MODELS.deep,
-      max_tokens: 8000,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium", format: { type: "json_schema", schema: FILLFORM_SCHEMA } },
-      system: [{ type: "text", text: sys }],
-      messages: [{ role: "user", content: `FORMULARFELDER:\n${fieldList}\n\nANTRAG/BUSINESSPLAN:\n${context}` }],
-    });
-    const message = await stream.finalMessage();
-    const tb = message.content.find((b) => b.type === "text");
-    let mapping = {};
-    try { for (const f of (JSON.parse(tb.text).fields || [])) if (f && f.name) mapping[f.name] = f.value; } catch {}
-
-    const { buffer, filled } = await fillFields(req.file.buffer, mapping);
-    const safe = String(req.body?.projektname || "Antrag").replace(/[^\w]+/g, "_").slice(0, 60) || "Antrag";
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${safe}_ausgefuellt.pdf"`);
-    res.setHeader("X-Fields-Filled", String(filled));
-    res.send(buffer);
+    const { buffer, filled } = await fillPdf(req.file.buffer, req.body?.content);
+    sendFilledPdf(res, buffer, filled, req.body?.projektname || "Antrag");
   } catch (err) { sendError(res, err); }
+});
+
+// PDF serverseitig laden (für Auto-Formular). Begrenzt Größe & prüft PDF-Signatur.
+async function fetchPdf(url) {
+  let resp;
+  try { resp = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(20000) }); }
+  catch { const e = new Error("Formular-PDF konnte nicht geladen werden."); e.status = 502; throw e; }
+  if (!resp.ok) { const e = new Error(`Formular nicht erreichbar (HTTP ${resp.status}).`); e.status = 502; throw e; }
+  const ct = (resp.headers.get("content-type") || "").toLowerCase();
+  const buf = Buffer.from(await resp.arrayBuffer());
+  if (buf.length > 10 * 1024 * 1024) { const e = new Error("Formular-PDF ist zu groß (>10 MB)."); e.status = 400; throw e; }
+  const looksPdf = ct.includes("pdf") || buf.subarray(0, 5).toString("latin1") === "%PDF-";
+  if (!looksPdf) { const e = new Error("Die gefundene Datei ist kein PDF-Formular."); e.status = 400; throw e; }
+  return buf;
+}
+
+// ── /api/fillform-url (Formular automatisch finden/laden und ausfüllen) ──────
+app.post("/api/fillform-url", async (req, res) => {
+  try {
+    let { formUrl } = req.body || {};
+    const { name, provider, region } = req.body || {};
+    if (!formUrl) {
+      if (!name) return res.status(400).json({ error: "Kein Programmname zur Formularsuche." });
+      const r = await resolveProgram({ name, provider, region });
+      formUrl = r.formUrl;
+      if (!formUrl) return res.status(404).json({ error: "Kein ausfüllbares Formular gefunden — bitte manuell hochladen.", url: r.url || null });
+    }
+    const pdf = await fetchPdf(formUrl);
+    const { buffer, filled } = await fillPdf(pdf, req.body?.content);
+    res.setHeader("X-Form-Url", encodeURI(formUrl));
+    sendFilledPdf(res, buffer, filled, req.body?.projektname || "Antrag");
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    sendError(res, err);
+  }
 });
 
 app.get("/api/grants", (_req, res) => res.json(GRANTS));
