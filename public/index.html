@@ -22,7 +22,7 @@
         colors: {
           cream: { 50:'#F7F2E7', 100:'#F1ECDE', 200:'#E8E1CE', 300:'#DCD3BB', 400:'#C8BD9F' },
           ink:   { 900:'#26221C', 700:'#46403A', 500:'#736C63', 300:'#A8A199' },
-          terracotta:'#C26A4C', honey:'#D5A55B', cobalt:'#4D6A8B',
+          terracotta:'#C26A4C', honey:'#D5A55B', cobalt:'#4D6A8B', sage:'#8A9A78',
         },
         fontFamily: {
           sans:['Geist','ui-sans-serif','system-ui','sans-serif'],
@@ -35,7 +35,7 @@
   <style>
     :root{ --cream-50:#F7F2E7; --cream-100:#F1ECDE; --cream-200:#E8E1CE; --cream-300:#DCD3BB; --cream-400:#C8BD9F;
       --ink-900:#26221C; --ink-700:#46403A; --ink-500:#736C63; --ink-300:#A8A199;
-      --terracotta:#C26A4C; --honey:#D5A55B; --cobalt:#4D6A8B; }
+      --terracotta:#C26A4C; --honey:#D5A55B; --cobalt:#4D6A8B; --sage:#8A9A78; }
     html,body{margin:0;padding:0;background:var(--cream-100);min-height:100vh;}
     body{font-family:'Geist',ui-sans-serif,system-ui,sans-serif;color:var(--ink-900);-webkit-font-smoothing:antialiased;letter-spacing:-0.005em;}
     .brand-serif{font-family:'Instrument Serif','Georgia',serif;}
@@ -49,6 +49,8 @@
     @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
     @keyframes sweep{0%{transform:translateX(-100%);}100%{transform:translateX(220%);}}
     @keyframes indet{0%{left:-40%;}100%{left:100%;}}
+    @keyframes wordIn{0%{opacity:0;transform:translateY(-0.7em);}12%,80%{opacity:1;transform:translateY(0);}100%{opacity:0;transform:translateY(0.7em);}}
+    .rot-word{display:inline-block;animation:wordIn 2.4s ease both;}
     .anim-fadeup{animation:fadeUp .5s cubic-bezier(.2,.7,.3,1) both;}
     .anim-fadein{animation:fadeIn .6s ease both;}
     .spin{animation:spin 1s linear infinite;display:inline-flex;}
@@ -195,6 +197,39 @@ function NomosMark({ size=80, color='var(--cream-100)' }) {
     <rect x="62" y="46" width="30" height={sw} rx={sw/2} fill={color} />
     <rect x="62" y="70" width="30" height={sw} rx={sw/2} fill={color} /></svg>;
 }
+// Sub-Brand-Glyphen (100×100, einfarbig) gemäß Sub-Brand-System.
+function ElenchosMark({ size=80, color='var(--cobalt)' }) { // Audit-Siegel: Ring + Häkchen
+  return <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
+    <circle cx="50" cy="50" r="34" stroke={color} strokeWidth="7" /><circle cx="50" cy="50" r="24" stroke={color} strokeWidth="3" opacity="0.5" />
+    <path d="M38 51 L47 60 L64 40" stroke={color} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" fill="none" /></svg>;
+}
+function MetronMark({ size=80, color='var(--terracotta)' }) { // Präzisions-Skala
+  const sw = size*0.085;
+  return <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
+    <rect x="20" y="14" width={sw} height="72" rx={sw/2} fill={color} />
+    {[24,38,52,66,80].map((y,i)=><rect key={y} x={20+sw} y={y} width={i===2?34:20} height={sw*0.8} rx={sw/2} fill={color} opacity={i===2?1:0.6} />)}
+    <circle cx={20+sw+34} cy="52" r="6" fill={color} /></svg>;
+}
+function AgoraMark({ size=80, color='var(--honey)' }) { // Konstellation: Mitte + orbitende Knoten
+  const cx=50,cy=50,r=30;
+  return <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
+    {[0,60,120,180,240,300].map(a=>{const x=cx+r*Math.cos(a*Math.PI/180),y=cy+r*Math.sin(a*Math.PI/180);return <g key={a}><line x1={cx} y1={cy} x2={x} y2={y} stroke={color} strokeWidth="2" opacity="0.4" /><circle cx={x} cy={y} r="6" fill={color} opacity="0.8" /></g>;})}
+    <circle cx={cx} cy={cy} r="9" fill={color} /></svg>;
+}
+function HermesMark({ size=80, color='var(--sage)' }) { // Flügelspuren + Häkchen
+  return <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
+    <path d="M30 56 L46 70 L72 36" stroke={color} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    <path d="M16 44 Q34 30 50 36" stroke={color} strokeWidth="5" strokeLinecap="round" fill="none" opacity="0.7" />
+    <path d="M84 44 Q66 30 50 36" stroke={color} strokeWidth="5" strokeLinecap="round" fill="none" opacity="0.7" /></svg>;
+}
+
+// Wort, das vertikal nach unten durch vision-passende Begriffe wechselt.
+function RotatingWord({ words, color='var(--terracotta)' }) {
+  const [i, setI] = useState(0);
+  useEffect(() => { const id = setInterval(()=>setI(x=>(x+1)%words.length), 2400); return ()=>clearInterval(id); }, []);
+  return <span className="relative inline-block align-baseline"><em key={i} className="rot-word brand-serif italic" style={{ color, fontStyle:'italic' }}>{words[i]}</em></span>;
+}
+
 const Eyebrow = ({ children, className='' }) => (
   <div className={"brand-mono uppercase text-ink-500 "+className} style={{ fontSize:10, letterSpacing:'0.18em' }}>{children}</div>);
 function NomosBadge() {
@@ -220,46 +255,66 @@ function Marketing({ page, go, startPitch }) {
 }
 
 // Produktfamilie von Telos — Nomos ist live, der Rest ist Roadmap.
+// Produktfamilie — verbindlich aus dem Sub-Brand-System. Reihenfolge = Gründungs-Reise.
 const PRODUCTS = [
-  { name: 'Nomos', greek: 'νόμος · Gesetz/Ordnung', status: 'live', desc: 'Übersetzt Idee/Businessplan in Förderanträge: Matching, Behördendeutsch, 80 %-Entwurf.' },
-  { name: 'Elenchos', greek: 'ἔλεγχος · Prüfung', status: 'geplant', desc: 'Prüft Vorhaben kritisch — Annahmen, Risiken, Tragfähigkeit, bevor es ernst wird.' },
-  { name: 'Metron', greek: 'μέτρον · Maß', status: 'geplant', desc: 'Kennzahlen & Finanzen: Planung, Forecasts und Mess­barkeit für die Gründung.' },
-  { name: 'Agora', greek: 'ἀγορά · Marktplatz', status: 'geplant', desc: 'Markt, Kund:innen und Sichtbarkeit — von Positionierung bis Go-to-Market.' },
-  { name: 'Hermes', greek: 'Ἑρμῆς · Bote', status: 'geplant', desc: 'Kommunikation & Behördengänge: Schriftverkehr, Fristen, Verwaltung im Griff.' },
+  { name: 'Nomos',    greek: 'νόμος · Gesetz',     funktion: 'Fördermittel-Copilot',          tagline: 'Vom Pitch zum Bescheid.',            benefit: 'Findet passende Förderungen und schreibt 80 % des Antrags — dein Start ins Unternehmertum.', color: '#26221C', Glyph: NomosMark,    status: 'live' },
+  { name: 'Metron',   greek: 'μέτρον · Maß',       funktion: 'Rating-Ready-Generator',        tagline: 'Was die Bank misst.',                benefit: 'Macht deinen Businessplan bank- & rating-fähig: Kapitaldienst, Branchenrisiko, Eigenmittelquote.', color: '#C26A4C', Glyph: MetronMark,   status: 'geplant' },
+  { name: 'Agora',    greek: 'ἀγορά · Marktplatz', funktion: 'Vergabe-Marktplatz',            tagline: 'Wo Anbieter sich finden.',           benefit: 'Scannt öffentliche Ausschreibungen (TED, eVergabe) und erstellt strukturierte Bietungsangebote.', color: '#D5A55B', Glyph: AgoraMark,    status: 'geplant' },
+  { name: 'Elenchos', greek: 'ἔλεγχος · Prüfung',  funktion: 'Verwendungsnachweis-Generator', tagline: 'Behauptung. Geprüft.',               benefit: 'Überführt nach der Förderzusage deine Belege in prüfsichere, formale Verwendungsnachweise.', color: '#4D6A8B', Glyph: ElenchosMark, status: 'geplant' },
+  { name: 'Hermes',   greek: 'Ἑρμῆς · Bote',       funktion: 'Vertrags-Übersetzer',           tagline: 'Juristisch lesen, menschlich verstehen.', benefit: 'Analysiert Verträge auf nachteilige Klauseln und übersetzt Juristendeutsch in Handlungsempfehlungen.', color: '#8A9A78', Glyph: HermesMark,   status: 'geplant' },
 ];
+const VISION_WORDS = ['entbürokratisiert', 'einfacher', 'schneller', 'planbar', 'finanzierbar', 'machbar'];
+
+function ProductCard({ p, n, go }) {
+  const dark = p.status === 'live';
+  return (
+    <div className="overflow-hidden rounded-3xl border border-cream-300 transition-all hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-20px_rgba(40,30,20,0.4)]" style={dark ? { background:'#26221C' } : { background:'var(--cream-50)' }}>
+      <div className="flex items-center justify-between gap-3 p-5" style={dark ? {} : { background: p.color + '14' }}>
+        <div className="flex items-center gap-3">
+          <p.Glyph size={34} color={dark ? '#F1ECDE' : p.color} />
+          <div>
+            <div className="font-sans" style={{ fontSize:22, fontWeight:500, letterSpacing:'-0.045em', lineHeight:1, color: dark ? '#F7F2E7' : 'var(--ink-900)' }}>{p.name.toLowerCase()}</div>
+            <div className="brand-mono mt-1" style={{ fontSize:9, letterSpacing:'0.12em', color: dark ? 'rgba(245,240,230,0.6)' : 'var(--ink-500)' }}>{p.greek}</div>
+          </div>
+        </div>
+        <span className="brand-mono rounded-full px-2.5 py-0.5" style={{ fontSize:9, letterSpacing:'0.12em', background: dark ? '#D5A55B' : p.color, color: dark ? '#26221C' : '#F7F2E7' }}>{dark ? '● LIVE' : 'GEPLANT'}</span>
+      </div>
+      <div className="p-5">
+        <div className="flex items-center gap-2">
+          <span className="brand-mono" style={{ fontSize:9, letterSpacing:'0.14em', color: dark ? 'rgba(245,240,230,0.5)' : 'var(--ink-300)' }}>{String(n).padStart(2,'0')}</span>
+          <span className="brand-mono uppercase" style={{ fontSize:9, letterSpacing:'0.14em', color: dark ? 'rgba(245,240,230,0.6)' : 'var(--ink-500)' }}>{p.funktion}</span>
+        </div>
+        <div className="mt-1 brand-serif italic" style={{ fontSize:18, color: dark ? '#F7F2E7' : 'var(--ink-900)' }}>{p.tagline}</div>
+        <p className="mt-2 text-sm leading-relaxed" style={{ color: dark ? 'rgba(245,240,230,0.85)' : 'var(--ink-700)' }}>{p.benefit}</p>
+        {dark && go && <button onClick={()=>go('engine')} className="brand-mono mt-3 hover:underline" style={{ fontSize:10, letterSpacing:'0.1em', color:'#D5A55B' }}>MEHR ZUR ENGINE →</button>}
+      </div>
+    </div>
+  );
+}
 
 function PageVision({ startPitch, go }) {
   return (
     <PageShell>
       <PageHero eyebrow="VISION · TELOS"
-        title={<>Gründen, <em className="brand-serif italic" style={{ fontWeight:400 }}>entbürokratisiert</em>.</>}
-        lede="Telos macht aus rohen Startup-Visionen strukturierte institutionelle Realität. Wir nehmen Gründer:innen die bürokratischen Hürden ab — Schritt für Schritt, mit KI-Lösungen für jede Phase der Gründung." />
+        title={<>Gründen, <RotatingWord words={VISION_WORDS} />.</>}
+        lede="Telos macht aus rohen Startup-Visionen strukturierte institutionelle Realität. Wir nehmen Gründer:innen die bürokratischen Hürden ab — von der Idee bis zum laufenden Betrieb, mit einer Familie von KI-Modulen für jede Phase." />
 
       <div className="mt-10 grid gap-6 lg:grid-cols-[1.05fr_1fr]">
         <div className="rounded-3xl bg-ink-900 p-8 text-cream-100 md:p-10">
           <div className="brand-mono" style={{ fontSize:11, letterSpacing:'0.18em', color:'rgba(245,240,230,0.6)' }}>UNSERE MISSION</div>
-          <p className="mt-4 brand-serif italic" style={{ fontSize:26, lineHeight:1.25 }}>„Jede gute Idee scheitert zu oft an Formularen, Fristen und Förder­dschungel. Telos räumt das weg."</p>
-          <p className="mt-4 text-sm leading-relaxed text-cream-300">Die Gründung soll an der Idee gemessen werden — nicht an der Geduld mit Behörden. Dafür bauen wir eine Produktfamilie, die den gesamten Weg begleitet.</p>
+          <p className="mt-4 brand-serif italic" style={{ fontSize:26, lineHeight:1.25 }}>„Fünf Sprachen der Bürokratie. Eine Familie. Damit jede gute Idee an sich selbst gemessen wird — nicht an Formularen."</p>
+          <p className="mt-4 text-sm leading-relaxed text-cream-300">Telos begleitet Gründer:innen von Anfang an: jedes Modul löst eine konkrete bürokratische Hürde — zusammen ein durchgängiger Partner für die ganze Gründung.</p>
         </div>
         <div className="flex flex-col justify-center gap-3">
-          {['Weniger Bürokratie, mehr Unternehmertum.','KI-Lösungen für jede Gründungsphase.','Ein durchgängiges Ökosystem statt Insellösungen.'].map((t,i)=>(
-            <div key={i} className="flex items-center gap-3 rounded-2xl border border-cream-300 bg-cream-50 p-4"><ArcMark size={22} color="var(--terracotta)" /><span className="text-sm font-medium text-ink-900">{t}</span></div>))}
+          {['Weniger Bürokratie, mehr Unternehmertum.','Ein KI-Modul für jede Gründungsphase.','Durchgängig statt Insellösungen — eine Familie.'].map((t,i)=>(
+            <div key={i} className="flex items-center gap-3 rounded-2xl border border-cream-300 bg-cream-50 p-4"><ArcMark size={22} color="#E2AC92" /><span className="text-sm font-medium text-ink-900">{t}</span></div>))}
         </div>
       </div>
 
-      <div className="mt-14"><SectionLabel>DIE PRODUKTFAMILIE</SectionLabel>
-        <p className="mb-5 max-w-2xl text-sm leading-relaxed text-ink-700"><strong className="text-ink-900">Nomos ist der erste Schritt</strong> — live und einsatzbereit. Die weiteren Produkte folgen und greifen ineinander, bis Telos die Gründung vollständig abdeckt.</p>
+      <div className="mt-14"><SectionLabel>DIE PRODUKTFAMILIE · DEINE GRÜNDUNGS-REISE</SectionLabel>
+        <p className="mb-5 max-w-2xl text-sm leading-relaxed text-ink-700"><strong className="text-ink-900">Nomos ist der erste Schritt</strong> — live und einsatzbereit. Vier Schwester-Module folgen derselben Marken-Grammatik (griechischer Name, eigener Glyph, eigene Farbe) und greifen entlang der Gründung ineinander.</p>
         <div className="grid gap-3 md:grid-cols-2">
-          {PRODUCTS.map((p)=>(
-            <div key={p.name} className={"rounded-3xl border p-6 "+(p.status==='live' ? 'border-ink-900 bg-cream-50' : 'border-cream-300 bg-cream-100')}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2"><NomosMark size={18} color="var(--ink-900)" /><span className="text-base font-medium text-ink-900">{p.name}</span></div>
-                <span className={"brand-mono rounded-full px-2.5 py-0.5 "+(p.status==='live' ? 'bg-ink-900 text-cream-50' : 'bg-cream-300 text-ink-700')} style={{ fontSize:9, letterSpacing:'0.12em' }}>{p.status==='live' ? '● LIVE' : 'IN PLANUNG'}</span>
-              </div>
-              <div className="brand-mono mt-1 text-ink-500" style={{ fontSize:10, letterSpacing:'0.08em' }}>{p.greek}</div>
-              <p className="mt-2 text-sm leading-relaxed text-ink-700">{p.desc}</p>
-              {p.status==='live' && <button onClick={()=>go('engine')} className="brand-mono mt-3 text-terracotta hover:underline" style={{ fontSize:10, letterSpacing:'0.1em' }}>MEHR ZUR ENGINE →</button>}
-            </div>))}
+          {PRODUCTS.map((p,i)=><ProductCard key={p.name} p={p} n={i+1} go={go} />)}
         </div>
       </div>
 
@@ -1108,7 +1163,10 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
           <h1 className="mt-6 font-sans" style={{ fontSize:'clamp(46px,7vw,82px)', fontWeight:400, letterSpacing:'-0.04em', lineHeight:0.94 }}>
             Vom Pitch<br/>zum <em className="brand-serif italic" style={{ fontWeight:400 }}>Bescheid</em>.<br/>Reibungslos.
           </h1>
-          <p className="mt-6 max-w-md text-lg leading-relaxed text-ink-700">
+          <p className="mt-5 font-sans text-ink-900" style={{ fontSize:'clamp(20px,2.6vw,28px)', fontWeight:400, letterSpacing:'-0.02em' }}>
+            Telos macht Gründen <RotatingWord words={VISION_WORDS} />.
+          </p>
+          <p className="mt-4 max-w-md text-lg leading-relaxed text-ink-700">
             Lade deinen echten Businessplan hoch. Nomos analysiert ihn mit KI, findet passende
             Förderlinien und schreibt 80&nbsp;% des Antrags in formellem Behördendeutsch.
           </p>
@@ -1194,6 +1252,20 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
           <div className="mt-6 flex items-center justify-center"><ArcMark size={36} color="var(--terracotta)" /></div>
           <p className="mt-3 text-center brand-serif italic text-ink-700" style={{ fontSize:16 }}>From Vision to Grant. Seamlessly.</p>
         </div>
+        <button onClick={onVision} className="group mt-4 w-full rounded-3xl border border-cream-300 bg-cream-50 p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-20px_rgba(40,30,20,0.4)]">
+          <div className="flex items-center justify-between">
+            <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.16em' }}>EINE FAMILIE FÜR DIE GANZE GRÜNDUNG</span>
+            <span className="brand-mono text-ink-500 transition-transform group-hover:translate-x-0.5" style={{ fontSize:10, letterSpacing:'0.14em' }}>VISION →</span>
+          </div>
+          <div className="mt-4 flex items-center justify-between gap-1">
+            {PRODUCTS.map((p)=>(
+              <div key={p.name} className="flex flex-1 flex-col items-center gap-1.5 transition-transform group-hover:-translate-y-0.5">
+                <p.Glyph size={26} color={p.status==='live' ? 'var(--ink-900)' : p.color} />
+                <span className="font-sans" style={{ fontSize:11, fontWeight:500, letterSpacing:'-0.03em', color: p.status==='live' ? 'var(--ink-900)' : 'var(--ink-500)' }}>{p.name.toLowerCase()}</span>
+                <span className="brand-mono rounded-full px-1.5 py-px" style={{ fontSize:7, letterSpacing:'0.08em', background: p.status==='live' ? 'var(--ink-900)' : p.color+'22', color: p.status==='live' ? '#F7F2E7' : p.color }}>{p.status==='live' ? 'LIVE' : 'BALD'}</span>
+              </div>))}
+          </div>
+        </button>
       </div>
     </main>
   );
