@@ -284,8 +284,16 @@ Anforderungen an den Entwurf:
 - Halte die oben genannten harten Anforderungen und Format-Hinweise der Förderlinie konsequent ein.
 - Erzeuge gut strukturiertes Markdown mit nummerierten Abschnitten (## 1 … ## 7).
 - Pflicht-Abschnitte: 1 Kurzbeschreibung des Vorhabens, 2 Ausgangslage und Problemstellung, 3 Ziele und erwartete Ergebnisse, 4 Innovationsgehalt und Abgrenzung zum Stand der Technik, 5 Arbeitsplan und Meilensteine (mit Arbeitspaketen AP1–AP5 und Monaten), 6 Verwertungsplan (wirtschaftlich und wissenschaftlich), 7 grober Finanzierungsplan (als Markdown-Tabelle mit Personal-, Sach-, Fremdkosten, Gesamtsumme und beantragter Förderquote).
-- Verschriftliche jeden Abschnitt AUSFÜHRLICH und auf hohem fachlichem Niveau: ausformulierte, vollständige Sätze in zusammenhängenden Absätzen (je Abschnitt mehrere Absätze, nicht nur Stichpunkte), prüffähig und gutachtertauglich — so, wie es eine Bewilligungsstelle erwartet.
-- Stütze dich AUSSCHLIESSLICH auf die Angaben im bereitgestellten Businessplan. Wo Informationen fehlen, formuliere fachlich übliche Platzhalter und markiere sie klar mit „[BITTE ERGÄNZEN: …]".
+- Verschriftliche jeden Abschnitt AUSFÜHRLICH und auf hohem fachlichem Niveau: ausformulierte, vollständige Sätze in zusammenhängenden Absätzen (je Pflicht-Abschnitt mindestens 2–4 substanzielle Absätze, nicht nur Stichpunkte), prüffähig und gutachtertauglich — so, wie es eine Bewilligungsstelle bzw. ein Gutachter erwartet.
+
+Qualitätskriterien (zwingend):
+- Schreibe aus der Perspektive eines erfahrenen Antrags-Autors für genau diese Förderlinie. Argumentiere überzeugend, aber sachlich belegbar.
+- Sei KONKRET und wo möglich QUANTIFIZIERT: Zahlen, Zeiträume, Mengengerüste, Zielwerte/KPIs, Marktgrößen, TRL-Stufen, Personenmonate. Keine vagen Allgemeinplätze.
+- Stelle in Abschnitt 4 den Stand der Technik dar und grenze das Vorhaben klar und nachvollziehbar davon ab (Alleinstellung, Neuheit, Risiko).
+- Abschnitt 5: konkrete Arbeitspakete AP1–AP5 mit Zielen, Tätigkeiten, Meilensteinen und Monatsangaben (z. B. M1–M6).
+- Abschnitt 7: realistische Finanztabelle mit nachvollziehbaren Größenordnungen und korrekt angewandter Förderquote der Linie.
+- Vermeide Wiederholungen und Worthülsen; jeder Satz muss Information tragen.
+- Stütze dich AUSSCHLIESSLICH auf die Angaben im bereitgestellten Businessplan. Wo Informationen fehlen, formuliere fachlich übliche, plausible Annahmen und markiere sie klar mit „[BITTE ERGÄNZEN: …]" — erfinde keine harten Fakten (Zahlen, Namen, Referenzen).
 - Schreibe formell, nominalstilbetont, präzise und konkret, ohne Marketing und ohne Floskeln.
 - Das ist ein Entwurf für ca. 80 % des Antrags. Persönliche Angaben, rechtsverbindliche Erklärungen und Unterschriften gehören NICHT hinein.
 - Beginne direkt mit einer Überschrift „# Förderantrag (Entwurf) — <Projektname>". Keine Vorrede.`;
