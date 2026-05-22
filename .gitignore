@@ -1,6 +1,8 @@
 node_modules/
+# Secrets: alle .env-Varianten ignorieren, NUR die Vorlage zulassen
 .env
-.env.local
+.env.*
+!.env.example
 *.log
 uploads/
 data/

@@ -6,7 +6,8 @@
   "description": "Telos · Nomos — übersetzt Businesspläne in Behördendeutsch, findet Fördermittel und generiert 80% des Förderantrags.",
   "scripts": {
     "start": "node server/server.js",
-    "dev": "node --watch server/server.js"
+    "dev": "node --watch server/server.js",
+    "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "engines": {
     "node": ">=20"

@@ -1,0 +1,24 @@
+#!/bin/sh
+# Telos · Nomos — Sicherheits-Hook: blockiert versehentliches Committen von Secrets.
+# Aktivieren (einmalig): git config core.hooksPath .githooks
+fail=0
+
+# 1) Eine echte .env darf niemals committet werden (nur .env.example ist erlaubt).
+if git diff --cached --name-only | grep -qE '(^|/)\.env(\.[^/]*)?$' \
+   && git diff --cached --name-only | grep -vE '(^|/)\.env\.example$' | grep -qE '(^|/)\.env(\.[^/]*)?$'; then
+  echo "✖ COMMIT BLOCKIERT: eine .env-Datei ist gestaged. Secrets gehören nur in eine lokale, gitignorierte .env."
+  fail=1
+fi
+
+# 2) Echte Anthropic-/typische Keys im hinzugefügten Diff.
+if git diff --cached -U0 | grep -E '^\+' | grep -qE 'sk-ant-(api|oat)[0-9A-Za-z_-]{16,}'; then
+  echo "✖ COMMIT BLOCKIERT: möglicher Anthropic-API-Key im Diff gefunden."
+  fail=1
+fi
+
+if [ "$fail" = "1" ]; then
+  echo "  → Schlüssel ausschließlich in einer lokalen .env (gitignored) ablegen. Details: SECURITY.md"
+  echo "  → Nur in absoluten Ausnahmefällen umgehen mit: git commit --no-verify"
+  exit 1
+fi
+exit 0
