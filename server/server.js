@@ -4,6 +4,8 @@ import multer from "multer";
 import mammoth from "mammoth";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import dns from "node:dns/promises";
+import net from "node:net";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { GRANTS, getGrantById } from "./grants.js";
@@ -24,7 +26,7 @@ const MODELS = {
 const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-22.5";
+const VERSION = "2026-05-22.6";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -40,8 +42,34 @@ function client() {
 }
 
 const app = express();
+app.set("trust proxy", 1); // hinter Proxy korrekte req.ip
 app.use(express.json({ limit: "1mb" }));
 app.use("/api", attachUser);
+
+// Schlankes In-Memory-Rate-Limit für teure KI-Endpunkte (Kosten-/Missbrauchsschutz).
+const RL_WINDOW_MS = 60 * 1000;
+const RL_MAX = Number(process.env.NOMOS_RATE_LIMIT || 30); // Anfragen pro Fenster und IP
+const RL_PATHS = new Set([
+  "/api/analyze", "/api/rescore", "/api/followup", "/api/livesearch", "/api/resolve",
+  "/api/generate", "/api/businessplan", "/api/businessplan/refine", "/api/translate",
+  "/api/compliance", "/api/checklist", "/api/fillform", "/api/fillform-url", "/api/explore",
+]);
+const rlHits = new Map(); // ip -> { count, reset }
+setInterval(() => { const now = Date.now(); for (const [k, v] of rlHits) if (v.reset <= now) rlHits.delete(k); }, RL_WINDOW_MS).unref?.();
+app.use((req, res, next) => {
+  if (!RL_PATHS.has(req.path)) return next();
+  const now = Date.now();
+  const ip = req.ip || req.socket?.remoteAddress || "unknown";
+  let e = rlHits.get(ip);
+  if (!e || e.reset <= now) { e = { count: 0, reset: now + RL_WINDOW_MS }; rlHits.set(ip, e); }
+  e.count++;
+  if (e.count > RL_MAX) {
+    res.setHeader("Retry-After", Math.ceil((e.reset - now) / 1000));
+    return res.status(429).json({ error: "Zu viele Anfragen — einen Moment, dann erneut versuchen." });
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, "..", "public"), {
   setHeaders(res, filePath) {
     // HTML nie aus dem Browser-Cache bedienen — verhindert veraltete Ansichten.
@@ -75,7 +103,7 @@ async function buildPlanContent({ text, file }) {
     }
   }
 
-  if (extracted) blocks.push({ type: "text", text: extracted });
+  if (extracted) blocks.push({ type: "text", text: extracted.slice(0, 120000) }); // Cap gegen übergroße Eingaben
   return blocks;
 }
 
@@ -695,12 +723,54 @@ app.post("/api/fillform", upload.single("form"), async (req, res) => {
   } catch (err) { sendError(res, err); }
 });
 
-// PDF serverseitig laden (für Auto-Formular). Begrenzt Größe & prüft PDF-Signatur.
+// SSRF-Schutz: private/loopback/link-local/metadata-Ziele blocken.
+function isPrivateIp(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split(".").map(Number);
+    return a === 0 || a === 10 || a === 127 ||
+      (a === 169 && b === 254) ||              // link-local / cloud-metadata (169.254.169.254)
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127) ||    // CGNAT
+      a >= 224;                                // multicast/reserved
+  }
+  const v = ip.toLowerCase().replace(/^\[|\]$/g, "");
+  if (v === "::1" || v === "::") return true;
+  if (v.startsWith("fe80") || v.startsWith("fc") || v.startsWith("fd")) return true; // link-local / ULA
+  if (v.startsWith("::ffff:")) return isPrivateIp(v.slice(7)); // IPv4-mapped
+  return false;
+}
+// Hostname auflösen und sicherstellen, dass KEINE Adresse intern ist.
+async function assertPublicHttpUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { const e = new Error("Ungültige Formular-URL."); e.status = 400; throw e; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") { const e = new Error("Nur http/https erlaubt."); e.status = 400; throw e; }
+  const host = u.hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") || host.endsWith(".local")) {
+    const e = new Error("Interne Adresse nicht erlaubt."); e.status = 400; throw e;
+  }
+  let addrs;
+  if (net.isIP(host)) addrs = [{ address: host }];
+  else { try { addrs = await dns.lookup(host, { all: true }); } catch { const e = new Error("Host nicht auflösbar."); e.status = 400; throw e; } }
+  if (addrs.some((a) => isPrivateIp(a.address))) { const e = new Error("Interne/private Adresse nicht erlaubt."); e.status = 400; throw e; }
+  return u.href;
+}
+
+// PDF serverseitig laden (für Auto-Formular). SSRF-geschützt, Größe & PDF-Signatur geprüft,
+// Redirects manuell verfolgt und je Hop erneut validiert.
 async function fetchPdf(url) {
+  let current = await assertPublicHttpUrl(url);
   let resp;
-  try { resp = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(20000) }); }
-  catch { const e = new Error("Formular-PDF konnte nicht geladen werden."); e.status = 502; throw e; }
-  if (!resp.ok) { const e = new Error(`Formular nicht erreichbar (HTTP ${resp.status}).`); e.status = 502; throw e; }
+  for (let hop = 0; hop < 4; hop++) {
+    try { resp = await fetch(current, { redirect: "manual", signal: AbortSignal.timeout(20000) }); }
+    catch { const e = new Error("Formular-PDF konnte nicht geladen werden."); e.status = 502; throw e; }
+    if (resp.status >= 300 && resp.status < 400 && resp.headers.get("location")) {
+      current = await assertPublicHttpUrl(new URL(resp.headers.get("location"), current).href);
+      continue;
+    }
+    break;
+  }
+  if (!resp || !resp.ok) { const e = new Error(`Formular nicht erreichbar (HTTP ${resp ? resp.status : "?"}).`); e.status = 502; throw e; }
   const ct = (resp.headers.get("content-type") || "").toLowerCase();
   const buf = Buffer.from(await resp.arrayBuffer());
   if (buf.length > 10 * 1024 * 1024) { const e = new Error("Formular-PDF ist zu groß (>10 MB)."); e.status = 400; throw e; }

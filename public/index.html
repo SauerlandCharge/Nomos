@@ -4,6 +4,18 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Telos · Nomos — Vom Pitch zum Bescheid</title>
+  <meta name="description" content="Nomos analysiert deinen Businessplan mit KI, findet aktuelle öffentliche Fördermittel (Bund · Länder · EU) und schreibt 80 % des Förderantrags in formellem Behördendeutsch." />
+  <meta name="theme-color" content="#26221C" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%2326221C'/%3E%3Cpath d='M16 44V20l16 24V20' fill='none' stroke='%23D5A55B' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%2326221C'/%3E%3Cpath d='M16 44V20l16 24V20' fill='none' stroke='%23D5A55B' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="de_DE" />
+  <meta property="og:site_name" content="Telos · Nomos" />
+  <meta property="og:title" content="Telos · Nomos — Vom Pitch zum Bescheid" />
+  <meta property="og:description" content="KI-Copilot für Gründer:innen: passende öffentliche Fördermittel finden und 80 % des Antrags in Behördendeutsch generieren." />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Telos · Nomos — Vom Pitch zum Bescheid" />
+  <meta name="twitter:description" content="KI-Copilot für Gründer:innen: passende öffentliche Fördermittel finden und 80 % des Antrags in Behördendeutsch generieren." />
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -89,6 +101,9 @@
       background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
     .focus-ring{transition:box-shadow .2s ease, border-color .2s ease;}
     .focus-ring:focus, .focus-ring:focus-within{border-color:var(--ink-900);box-shadow:0 0 0 3px rgba(77,106,139,.18);}
+    /* sichtbarer Tastatur-Fokus (nur bei Tastaturnavigation) */
+    a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible{
+      outline:2px solid var(--cobalt); outline-offset:2px; border-radius:6px;}
     .pillbar{position:relative;}
     /* markdown */
     .md h1{font-size:30px;font-weight:500;letter-spacing:-0.03em;margin:0 0 8px;}
@@ -629,6 +644,40 @@ function PageEngine({ startPitch }) {
   );
 }
 
+// Zugänglicher Modal-Wrapper: Escape schließt, Fokus-Falle, Scroll-Lock, Fokus-Rückgabe.
+function Modal({ onClose, children, className='max-w-xl', label='Dialog' }) {
+  const ref = useRef(null);
+  const prev = useRef(null);
+  useEffect(() => {
+    prev.current = document.activeElement;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const sel = 'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
+    const focusables = () => Array.from(ref.current ? ref.current.querySelectorAll(sel) : []);
+    const t = setTimeout(() => { const f = focusables(); (f[0] || ref.current)?.focus?.(); }, 0);
+    function onKey(e) {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose?.(); return; }
+      if (e.key === 'Tab') {
+        const f = focusables(); if (!f.length) { e.preventDefault(); return; }
+        const first = f[0], last = f[f.length-1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+    document.addEventListener('keydown', onKey, true);
+    return () => { clearTimeout(t); document.removeEventListener('keydown', onKey, true); document.body.style.overflow = prevOverflow; try { prev.current?.focus?.(); } catch {} };
+  }, []);
+  return (
+    <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4" onClick={onClose}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}
+        className={"anim-pop max-h-[88vh] w-full overflow-auto rounded-3xl border border-cream-300 bg-cream-50 p-7 shadow-card outline-none "+className}
+        onClick={(e)=>e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /* Förderlinien */
 // Detailansicht einer Förderung — mit Live-Auflösung der konkreten Programm-/Formular-URL.
 function GrantDetail({ grant, onClose, startPitch }) {
@@ -647,14 +696,13 @@ function GrantDetail({ grant, onClose, startPitch }) {
   }
   const Link = ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="brand-mono text-cobalt hover:underline" style={{ fontSize:11, letterSpacing:'0.06em' }}>{children} ↗</a>;
   return (
-    <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4" onClick={onClose}>
-      <div className="anim-fadeup max-h-[88vh] w-full max-w-xl overflow-auto rounded-3xl border border-cream-300 bg-cream-50 p-7" onClick={(e)=>e.stopPropagation()}>
+    <Modal onClose={onClose} className="max-w-xl" label={`Förderdetails: ${grant.name}`}>
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>{grant.region} · {grant.provider}</div>
             <h2 className="mt-1 font-sans" style={{ fontSize:22, fontWeight:500, letterSpacing:'-0.02em' }}>{grant.name}</h2>
           </div>
-          <button onClick={onClose} className="flex h-8 w-8 flex-none items-center justify-center rounded-full border border-cream-400 text-ink-700 hover:border-ink-900">✕</button>
+          <button onClick={onClose} aria-label="Schließen" className="flex h-8 w-8 flex-none items-center justify-center rounded-full border border-cream-400 text-ink-700 hover:border-ink-900">✕</button>
         </div>
         {grant.summary && <p className="mt-3 text-sm leading-relaxed text-ink-700">{grant.summary}</p>}
         <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1">
@@ -690,8 +738,7 @@ function GrantDetail({ grant, onClose, startPitch }) {
           <button onClick={()=>{ onClose(); startPitch(); }} className="rounded-full bg-ink-900 px-5 py-2.5 text-sm font-medium text-cream-100 transition-transform hover:scale-[1.03]">Mit Pitch starten →</button>
           <span className="brand-mono self-center text-ink-500" style={{ fontSize:10 }}>Lade deinen Plan hoch, um den Antrag zu erstellen.</span>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -853,9 +900,11 @@ function AuthModal({ open, onClose, auth }) {
     setBusy(false);
   }
   return (
-    <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4" onClick={onClose}>
-      <div className="anim-fadeup w-full max-w-md rounded-3xl border border-cream-300 bg-cream-50 p-7" onClick={(e)=>e.stopPropagation()}>
-        <div className="flex items-center gap-3"><TelosLockup size={22} /><span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.18em' }}>· KONTO</span></div>
+    <Modal onClose={onClose} className="max-w-md" label={mode==='login' ? 'Anmelden' : 'Konto erstellen'}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3"><TelosLockup size={22} /><span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.18em' }}>· KONTO</span></div>
+          <button onClick={onClose} aria-label="Schließen" className="flex h-8 w-8 flex-none items-center justify-center rounded-full border border-cream-400 text-ink-700 hover:border-ink-900">✕</button>
+        </div>
         <h2 className="mt-4 font-sans" style={{ fontSize:24, fontWeight:500, letterSpacing:'-0.02em' }}>{mode==='login' ? 'Anmelden' : 'Konto erstellen'}</h2>
         <p className="mt-1 text-sm text-ink-700">{mode==='login' ? 'Melde dich an, um deinen Verlauf zu sehen.' : 'Speichere Pitches & Anträge in deinem Konto.'}</p>
         <form onSubmit={submit} className="mt-5 flex flex-col gap-3">
@@ -870,8 +919,7 @@ function AuthModal({ open, onClose, auth }) {
           <button onClick={()=>{ setErr(''); setMode(mode==='login'?'register':'login'); }} className="font-medium text-terracotta hover:underline">{mode==='login' ? 'Registrieren' : 'Anmelden'}</button>
         </div>
         <p className="mt-4 brand-mono text-ink-300" style={{ fontSize:9, letterSpacing:'0.1em' }}>Daten liegen nur in deinem Konto und sind jederzeit löschbar.</p>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1327,7 +1375,7 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
                 placeholder="… oder beschreibe deine Idee als Text (auch in lockerem Gründer-Slang)."
                 className="w-full resize-none rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 pr-12 text-sm leading-relaxed outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
               {speech.supported && (
-                <button onClick={speech.toggle} title={speech.listening ? 'Aufnahme stoppen' : 'Per Sprache diktieren'}
+                <button onClick={speech.toggle} title={speech.listening ? 'Aufnahme stoppen' : 'Per Sprache diktieren'} aria-label={speech.listening ? 'Aufnahme stoppen' : 'Per Sprache diktieren'}
                   className={"absolute bottom-2.5 right-2.5 flex h-9 w-9 items-center justify-center rounded-full transition-colors "+(speech.listening ? 'bg-terracotta text-cream-50' : 'border border-cream-400 text-ink-700 hover:border-ink-900')}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 19v3" />
@@ -1659,6 +1707,9 @@ function Dashboard({ proj, pitch, file, analysis, live, searching, liveErr, onRe
 
       {/* matches — web-getrieben, progressiv */}
       <div className="mt-6">
+        <span className="sr-only" aria-live="polite" role="status">
+          {searching ? `Suche läuft … ${combined.length} Förderungen bisher gefunden.` : `${combined.length} Förderungen gefunden.`}
+        </span>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <Eyebrow>SCHRITT 2 · AKTUELLE FÖRDERUNGEN · LIVE AUS DEM WEB</Eyebrow>
           <span className="brand-mono flex items-center gap-1.5 text-cobalt" style={{ fontSize:10, letterSpacing:'0.1em' }}>
