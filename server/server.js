@@ -26,7 +26,7 @@ const MODELS = {
 const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-22.7";
+const VERSION = "2026-05-22.8";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -197,7 +197,7 @@ app.post("/api/followup", async (req, res) => {
     const stream = client().messages.stream({
       model: MODELS.fast,
       max_tokens: 4000,
-      output_config: { effort: "medium", format: { type: "json_schema", schema: FOLLOWUP_SCHEMA } },
+      output_config: { format: { type: "json_schema", schema: FOLLOWUP_SCHEMA } },
       system: [{ type: "text", text: FOLLOWUP_SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: `Finde offene, entscheidende Rückfragen für dieses Vorhaben:\n\n${context}` }],
     });
@@ -243,8 +243,10 @@ app.post("/api/rescore", async (req, res) => {
 });
 
 // Eine Web-Recherche-Runde: Suchschleife bis zur finalen Antwort, dann Programme extrahieren.
-async function webSearchPrograms(query, { maxIters = 6, idPrefix = "live", system = LIVESEARCH_SYSTEM } = {}) {
-  let messages = [{ role: "user", content: query }];
+// Akkumuliert die Konversation korrekt (assistant-Turns werden angehängt, nicht überschrieben),
+// damit web-search/tool-Resultate über mehrere pause_turn-Runden erhalten bleiben.
+async function webSearchPrograms(query, { maxIters = 8, idPrefix = "live", system = LIVESEARCH_SYSTEM } = {}) {
+  const messages = [{ role: "user", content: query }];
   let final = null;
   const c = client();
   for (let i = 0; i < maxIters; i++) {
@@ -258,14 +260,15 @@ async function webSearchPrograms(query, { maxIters = 6, idPrefix = "live", syste
       messages,
     });
     if (resp.stop_reason === "pause_turn") {
-      messages = [{ role: "user", content: query }, { role: "assistant", content: resp.content }];
+      messages.push({ role: "assistant", content: resp.content });
       continue;
     }
     final = resp;
     break;
   }
-  if (!final) return [];
-  const fullText = final.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  // Auch bei maxIters-Ende: alle bisher gesammelten Text-Blöcke (inkl. fence-JSON) auswerten.
+  const sources = final ? [final, ...messages.filter((m) => m.role === "assistant")] : messages.filter((m) => m.role === "assistant");
+  const fullText = sources.flatMap((m) => (m.content || []).filter((b) => b.type === "text").map((b) => b.text)).join("\n\n");
   return extractPrograms(fullText, idPrefix);
 }
 
@@ -619,7 +622,7 @@ app.post("/api/compliance", async (req, res) => {
     const stream = client().messages.stream({
       model: MODELS.fast,
       max_tokens: 4000,
-      output_config: { effort: "medium", format: { type: "json_schema", schema: COMPLIANCE_SCHEMA } },
+      output_config: { format: { type: "json_schema", schema: COMPLIANCE_SCHEMA } },
       system: [{ type: "text", text: complianceSystem(grant), cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: `Prüfe diesen Antragsentwurf:\n\n${String(content).slice(0, 60000)}` }],
     });
@@ -642,7 +645,7 @@ app.post("/api/checklist", async (req, res) => {
     const stream = client().messages.stream({
       model: MODELS.fast,
       max_tokens: 3000,
-      output_config: { effort: "medium", format: { type: "json_schema", schema: CHECKLIST_SCHEMA } },
+      output_config: { format: { type: "json_schema", schema: CHECKLIST_SCHEMA } },
       system: [{ type: "text", text: checklistSystem(grant), cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: plan ? `Vorhaben-Kontext:\n${plan}\n\nErstelle die Checkliste.` : "Erstelle die Checkliste für diese Förderlinie." }],
     });
@@ -827,7 +830,7 @@ app.get("/api/explore", async (req, res) => {
     }
     const heute = new Date().toISOString().slice(0, 10);
     const query = `Heutiges Datum: ${heute}\nThema/Kategorie: ${cat.label} — ${cat.seed}\n\nFinde aktuell beantragbare, reale öffentliche Förderprogramme zu diesem Thema für Gründer:innen und junge Unternehmen in Deutschland/EU.`;
-    const programs = await webSearchPrograms(query, { maxIters: 5, idPrefix: `exp-${cat.key}`, system: EXPLORE_SYSTEM });
+    const programs = await webSearchPrograms(query, { maxIters: 8, idPrefix: `exp-${cat.key}`, system: EXPLORE_SYSTEM });
     exploreCache.set(cat.key, { ts: Date.now(), programs });
     res.json({ category: cat.key, label: cat.label, programs, cached: false });
   } catch (err) { sendError(res, err); }
@@ -860,11 +863,13 @@ async function streamText(res, { system, messages, max_tokens, effort, model, co
 
   try {
     for (let i = 0; i <= maxContinuations; i++) {
+      // Haiku unterstützt weder adaptive thinking noch den effort-Parameter.
+      const isHaiku = /haiku/i.test(useModel);
       const stream = c.messages.stream({
         model: useModel,
         max_tokens,
-        thinking: { type: "adaptive" },
-        output_config: { effort },
+        ...(isHaiku ? {} : { thinking: { type: "adaptive" } }),
+        ...(isHaiku ? {} : { output_config: { effort } }),
         system,
         messages: convo,
       });

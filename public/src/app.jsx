@@ -160,7 +160,8 @@ const SAMPLES = [
 function Marketing({ page, go, startPitch }) {
   if (page==='produkt')       return <PageProdukt startPitch={startPitch} />;
   if (page==='engine')        return <PageEngine startPitch={startPitch} />;
-  if (page==='foerderlinien') return <PageFoerderlinien startPitch={startPitch} />;
+  // Alte Förderlinien-Marketingseite ist durch „Entdecken" abgelöst — Aufrufe dorthin leiten.
+  if (page==='foerderlinien') { setTimeout(()=>go('entdecken'),0); return null; }
   if (page==='preise')        return <PagePreise startPitch={startPitch} />;
   if (page==='vision')        return <PageVision startPitch={startPitch} go={go} />;
   return null;
@@ -1190,12 +1191,18 @@ function Nav({ page, go, onLogo, startPitch, auth, onLogin, flowBusy, flowLabel,
 /* ── Landing ─────────────────────────────────────────────────────────────── */
 function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnalyze, onIdea, onVision, onExplore }) {
   const [drag, setDrag] = useState(false);
+  const [mode, setMode] = useState(file ? 'datei' : 'text'); // 'text' | 'datei' | 'sprache'
   const inputRef = useRef(null);
   const model = useModel();
   const speech = useSpeech((t) => setPitch(p => (p ? p.trim() + ' ' : '') + t));
   const canGo = pitch.trim().length > 24 || !!file;
+  const trimLen = pitch.trim().length;
+  const needed = Math.max(0, 25 - trimLen);
 
-  function onDrop(e){ e.preventDefault(); setDrag(false); const f=e.dataTransfer.files?.[0]; if(f) setFile(f); }
+  function onDrop(e){ e.preventDefault(); setDrag(false); const f=e.dataTransfer.files?.[0]; if(f){ setFile(f); setMode('datei'); } }
+  function chooseSample(s){ setProj(s.proj); setPitch(s.text); setFile(null); setMode('text'); }
+  function fileExt(f){ const m = (f.name||'').match(/\.([a-z0-9]+)$/i); return (m?m[1]:'').toUpperCase() || 'FILE'; }
+  function prettySize(b){ if (!b) return ''; const u=['B','KB','MB']; let i=0,v=b; while(v>=1024&&i<u.length-1){v/=1024;i++;} return v.toFixed(v<10?1:0)+' '+u[i]; }
 
   return (
     <main className="anim-fadein relative mx-auto max-w-7xl px-6 pb-24 pt-12 md:px-12">
@@ -1216,65 +1223,105 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
             Lade deinen echten Businessplan hoch. Nomos analysiert ihn mit KI, findet passende
             Förderlinien und schreibt 80&nbsp;% des Antrags in formellem Behördendeutsch.
           </p>
-          <div className="shadow-card anim-pop mt-9 rounded-3xl border border-cream-300 bg-cream-50/90 p-5">
-            <div className="mb-3 flex items-start gap-2 rounded-xl bg-cream-200 px-3 py-2">
-              <NomosMark size={15} color="var(--ink-900)" />
-              <p className="text-xs leading-relaxed text-ink-700">Nomos sucht auf Basis deiner Idee / deines Businessplans passende Förderungen für dich.</p>
-            </div>
-            <Eyebrow>SCHRITT 1 · DEIN VORHABEN</Eyebrow>
-            <input value={proj} onChange={e=>setProj(e.target.value)} placeholder="Projektname (optional — Nomos erkennt ihn sonst)"
-              className="mt-3 w-full rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 text-sm font-medium outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
+          <section aria-label="Vorhaben eingeben" className="shadow-card anim-pop mt-9 rounded-3xl border border-cream-300 bg-cream-50/85 p-5 md:p-6">
+            <header className="flex flex-wrap items-center justify-between gap-3">
+              <div role="tablist" aria-label="Eingabemodus" className="seg-bar">
+                {[['text','Text'],['datei','Datei'],['sprache','Sprache']].map(([k,l])=>(
+                  <button key={k} role="tab" aria-selected={mode===k} onClick={()=>setMode(k)} className="seg-pill">{l}</button>
+                ))}
+              </div>
+              <input value={proj} onChange={e=>setProj(e.target.value)}
+                placeholder="Titel des Vorhabens (optional)" aria-label="Titel des Vorhabens (optional)"
+                className="w-full max-w-[260px] rounded-full border border-cream-300 bg-transparent px-4 py-1.5 text-xs text-ink-900 outline-none placeholder:text-ink-300 focus:border-ink-900" />
+            </header>
 
-            {/* dropzone */}
-            <div onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={onDrop}
-              onClick={()=>inputRef.current?.click()}
-              className={"mt-3 cursor-pointer rounded-xl border border-dashed px-4 py-4 text-center text-sm transition-colors "+(drag?'border-ink-900 bg-cream-200':'border-cream-400 hover:border-ink-700')}>
-              <input ref={inputRef} type="file" accept=".pdf,.docx,.txt,application/pdf" className="hidden"
-                onChange={e=>setFile(e.target.files?.[0]||null)} />
-              {file
-                ? <span className="text-ink-900">{file.name} · <button onClick={(e)=>{e.stopPropagation();setFile(null);}} className="text-terracotta underline">entfernen</button></span>
-                : <span className="text-ink-500">Pitch-Deck / Businessplan als <strong className="text-ink-700">PDF, DOCX oder TXT</strong> hierher ziehen oder klicken</span>}
-            </div>
+            <div className="mt-4 anim-fadein" key={mode}>
+              {mode==='text' && (
+                <div>
+                  <textarea value={pitch} onChange={e=>setPitch(e.target.value)} rows={5}
+                    aria-label="Beschreibe dein Vorhaben"
+                    placeholder="Was hast du vor? Beschreibe dein Vorhaben in 2–4 Sätzen — auch in lockerem Gründer-Slang. Nomos erkennt automatisch Branche, Phase und Region."
+                    className="pitch-area w-full resize-none rounded-2xl border border-cream-300 bg-cream-100 px-4 py-3.5 text-[15px] leading-relaxed outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                    <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.08em' }}>{pitch.length} ZEICHEN</span>
+                    <span className={"brand-mono "+(canGo?'text-cobalt':'text-ink-500')} style={{ fontSize:10, letterSpacing:'0.08em' }}>{canGo ? '● BEREIT' : `NOCH ${needed} ZEICHEN BIS BEREIT`}</span>
+                  </div>
+                </div>
+              )}
 
-            <div className="relative mt-3">
-              <textarea value={pitch} onChange={e=>setPitch(e.target.value)} rows={4}
-                placeholder="… oder beschreibe deine Idee als Text (auch in lockerem Gründer-Slang)."
-                className="w-full resize-none rounded-xl border border-cream-300 bg-cream-100 px-4 py-3 pr-12 text-sm leading-relaxed outline-none transition-colors placeholder:text-ink-300 focus:border-ink-900" />
-              {speech.supported && (
-                <button onClick={speech.toggle} title={speech.listening ? 'Aufnahme stoppen' : 'Per Sprache diktieren'} aria-label={speech.listening ? 'Aufnahme stoppen' : 'Per Sprache diktieren'}
-                  className={"absolute bottom-2.5 right-2.5 flex h-9 w-9 items-center justify-center rounded-full transition-colors "+(speech.listening ? 'bg-terracotta text-cream-50' : 'border border-cream-400 text-ink-700 hover:border-ink-900')}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 19v3" />
-                  </svg>
-                  {speech.listening && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-honey dot-pulse" />}
-                </button>
+              {mode==='datei' && (
+                <div onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={onDrop}
+                  onClick={()=>!file && inputRef.current?.click()}
+                  className={"dz "+(drag?'drag ':'')+(!file?'cursor-pointer':'')}>
+                  <input ref={inputRef} type="file" accept=".pdf,.docx,.txt,application/pdf" className="hidden"
+                    onChange={e=>{ const f=e.target.files?.[0]; if(f) setFile(f); e.target.value=''; }} />
+                  {file ? (
+                    <div className="file-pill mx-auto">
+                      <span className="ico">{fileExt(file)}</span>
+                      <div className="flex flex-col text-left">
+                        <span className="text-sm font-medium text-ink-900">{file.name}</span>
+                        <span className="brand-mono text-ink-500" style={{ fontSize:10 }}>{prettySize(file.size)} · bereit zur Analyse</span>
+                      </div>
+                      <button onClick={(e)=>{e.stopPropagation();setFile(null);}} aria-label="Datei entfernen"
+                        className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full border border-cream-400 text-ink-700 hover:border-ink-900">✕</button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-base text-ink-900"><strong>PDF · DOCX · TXT</strong> hierher ziehen oder klicken</p>
+                      <p className="brand-mono mt-1 text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>NOMOS LIEST DOKUMENTE NATIV — KEIN OCR NÖTIG</p>
+                      <span className="arc"><ArcMark size={36} color="var(--terracotta)" /></span>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {mode==='sprache' && (
+                <div className="rounded-2xl border border-cream-300 bg-cream-100 p-5 text-center">
+                  <button onClick={speech.toggle} disabled={!speech.supported}
+                    aria-label={speech.listening?'Aufnahme stoppen':'Aufnahme starten'}
+                    className={"mx-auto flex h-20 w-20 items-center justify-center rounded-full transition-all "+(speech.listening ? 'bg-terracotta text-cream-50 shadow-[0_18px_44px_-18px_rgba(194,106,76,0.7)]' : 'bg-ink-900 text-cream-50 shadow-card enabled:hover:scale-[1.04] disabled:opacity-40')}>
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 19v3" />
+                    </svg>
+                  </button>
+                  <div className="mt-3 flex h-9 items-center justify-center">
+                    {speech.listening
+                      ? <span className="mic-bars" aria-hidden><span/><span/><span/><span/><span/></span>
+                      : <span className="brand-mono text-ink-500" style={{ fontSize:11, letterSpacing:'0.12em' }}>{speech.supported ? 'TIPP MIC AN, SPRICH FREI' : 'BROWSER UNTERSTÜTZT KEINE SPRACHEINGABE'}</span>}
+                  </div>
+                  {pitch && <p className="mt-2 mx-auto max-w-md text-sm leading-relaxed text-ink-700">{pitch}</p>}
+                </div>
               )}
             </div>
-            {speech.listening && <p className="mt-1.5 brand-mono text-terracotta" style={{ fontSize:10, letterSpacing:'0.1em' }}>● HÖRT ZU … sprich deine Idee ein</p>}
 
-            <p className="mt-2 text-xs leading-relaxed text-ink-500">🔒 Ohne Konto wird nichts gespeichert. Mit Konto werden Analyse & Eingaben nur in deinem Konto abgelegt (jederzeit löschbar); hochgeladene Dateien werden nicht dauerhaft gespeichert.</p>
-
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="brand-mono text-ink-500" style={{ fontSize:10, letterSpacing:'0.12em' }}>BEISPIELE:</span>
-              {SAMPLES.map(s => <button key={s.proj} onClick={()=>{setProj(s.proj);setPitch(s.text);setFile(null);}}
-                className="rounded-full border border-cream-400 px-3 py-1 text-xs text-ink-700 transition-colors hover:border-ink-900 hover:text-ink-900">{s.proj}</button>)}
+            {/* Premium-Beispielkarten */}
+            <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
+              {SAMPLES.map((s, i) => (
+                <button key={s.proj} onClick={()=>chooseSample(s)} className="sample-card">
+                  <div className="flex items-center justify-between">
+                    <span className="font-sans text-[15px] font-medium text-ink-900">{s.proj}</span>
+                    <span className="brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.12em' }}>BEISPIEL {String(i+1).padStart(2,'0')}</span>
+                  </div>
+                  <p className="text-xs leading-snug text-ink-700">{s.text.length > 130 ? s.text.slice(0, 130) + '…' : s.text}</p>
+                </button>
+              ))}
             </div>
 
             {error && <div className="mt-4 rounded-xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-ink-900">{error}</div>}
 
-            <div className="mt-4 flex items-center justify-between gap-3">
-              <span className="brand-mono text-ink-500" style={{ fontSize:10 }}>{canGo ? 'bereit' : 'Text (min. 25 Z.) oder Datei'}</span>
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-cream-300 pt-4">
+              <span className="flex items-center gap-2 text-xs text-ink-500">🔒 Privat · ohne Konto wird nichts gespeichert.</span>
               <button onClick={()=>onAnalyze()} disabled={!canGo}
-                className="rounded-full bg-ink-900 px-5 py-3 text-sm font-medium text-cream-100 shadow-card transition-all duration-300 enabled:hover:-translate-y-0.5 enabled:hover:shadow-[0_18px_40px_-18px_rgba(40,30,20,0.6)] enabled:hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-30"
+                aria-label="Vorhaben mit Nomos analysieren"
+                className="group inline-flex items-center gap-2 rounded-full bg-ink-900 px-6 py-3 text-sm font-medium text-cream-100 shadow-card transition-all duration-300 enabled:hover:-translate-y-0.5 enabled:hover:shadow-[0_22px_46px_-18px_rgba(40,30,20,0.65)] enabled:hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-30"
                 style={{ transitionTimingFunction:'var(--spring)' }}>
-                Mit Nomos analysieren →
+                Mit Nomos analysieren <span className="inline-block transition-transform group-enabled:group-hover:translate-x-0.5">→</span>
               </button>
             </div>
-            <div className="mt-3 border-t border-cream-300 pt-3 text-center">
-              <span className="text-sm text-ink-700">Noch keinen Businessplan? </span>
-              <button onClick={onIdea} className="text-sm font-medium text-terracotta hover:underline">Aus deiner Idee einen erstellen →</button>
-            </div>
-          </div>
+            <p className="mt-3 text-center text-sm text-ink-700">
+              Noch keinen Businessplan? <button onClick={onIdea} className="font-medium text-terracotta hover:underline">Aus deiner Idee einen erstellen →</button>
+            </p>
+          </section>
 
           <div className="mt-10 flex flex-wrap gap-8 border-t border-cream-300 pt-6">
             {[['Echte KI',model+' · serverseitig'],['PDF & DOCX','native Dokument-Analyse'],['80 %','des Antrags vorbereitet']].map(([v,l])=>(
@@ -1550,6 +1597,7 @@ function Dashboard({ proj, pitch, file, analysis, live, searching, liveErr, onRe
 
   return (
     <main className="anim-fadein mx-auto max-w-5xl px-6 pb-24 pt-8 md:px-12">
+      <div className="mb-4"><FlowStepper step={1} /></div>
       {/* header */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -1716,6 +1764,21 @@ function SkeletonRow() {
 }
 const SkeletonRows = ({ n=3 }) => <div className="flex flex-col gap-2.5">{Array.from({length:n}).map((_,i)=><SkeletonRow key={i} />)}</div>;
 
+// Schlanker Flow-Stepper: 01 Vorhaben · 02 Förderungen · 03 Antrag.
+function FlowStepper({ step=2 }) {
+  const items = [['01','Vorhaben'],['02','Förderungen'],['03','Antrag']];
+  return (
+    <div className="flow-stepper no-print" aria-label="Ablauf">
+      {items.map(([n,l], i) => (
+        <React.Fragment key={n}>
+          <span className={"step "+(i<=step?'active':'')}><span className="num">{i<step?'✓':n}</span>{l}</span>
+          {i<items.length-1 && <span className="sep" aria-hidden />}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
 // Lebendiger Lade-Zustand der Web-Suche: wechselnde Quellen-Mikrocopy + Shimmer-Reihen.
 const SEARCH_SOURCES = ['Förderdatenbank des Bundes','Landesförderbanken','EU-Programme (Horizon · EIC)','Ministerien & Förderbanken','aktuelle Fristen & Einreichrunden'];
 function SearchingRows({ have=0 }) {
@@ -1865,6 +1928,7 @@ function Antrag({ proj, pitch, file, grant, pitchId, loggedIn, onBack, onReset }
 
   return (
     <main className="anim-fadein mx-auto max-w-4xl px-6 pb-24 pt-8 md:px-12">
+      <div className="no-print mb-4"><FlowStepper step={2} /></div>
       <div className="no-print mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cream-300 bg-cream-50 px-5 py-4">
         <div className="flex items-center gap-3">
           <NomosMark size={22} color="var(--ink-900)" />
