@@ -70,6 +70,63 @@ function useSpeech(onText) {
   return { supported: !!SR, listening, toggle };
 }
 
+// Scroll-Reveal: setzt .reveal-in, sobald das Element ins Viewport scrollt.
+function useReveal({ rootMargin = "0px 0px -10% 0px", threshold = 0.12 } = {}) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current; if (!el || !("IntersectionObserver" in window)) { el?.classList.add("reveal-in"); return; }
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add("reveal-in"); io.unobserve(e.target); }
+    }, { rootMargin, threshold });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return ref;
+}
+
+// Magnetic-CTA: leichte Anziehung des Buttons zum Cursor (Stripe-/Linear-Detail).
+function useMagnetic({ strength = 0.25, max = 8 } = {}) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) return;
+    function onMove(e) {
+      const r = el.getBoundingClientRect();
+      const dx = (e.clientX - (r.left + r.width / 2)) * strength;
+      const dy = (e.clientY - (r.top + r.height / 2)) * strength;
+      const cx = Math.max(-max, Math.min(max, dx));
+      const cy = Math.max(-max, Math.min(max, dy));
+      el.style.transform = `translate(${cx}px, ${cy}px)`;
+    }
+    function reset() { el.style.transform = ""; }
+    el.addEventListener("mousemove", onMove);
+    el.addEventListener("mouseleave", reset);
+    return () => { el.removeEventListener("mousemove", onMove); el.removeEventListener("mouseleave", reset); };
+  }, []);
+  return ref;
+}
+
+// Parallax-Aura: die hero-aura bewegt sich subtil mit der Maus.
+function useParallax({ amount = 12 } = {}) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) return;
+    function onMove(e) {
+      const r = el.getBoundingClientRect();
+      const cx = (e.clientX - r.left) / r.width - 0.5;
+      const cy = (e.clientY - r.top) / r.height - 0.5;
+      const aura = el.querySelector(".hero-aura");
+      if (aura) aura.style.transform = `translate(${cx * -amount}px, ${cy * -amount}px)`;
+    }
+    el.addEventListener("mousemove", onMove);
+    return () => el.removeEventListener("mousemove", onMove);
+  }, []);
+  return ref;
+}
+
 // Wiederverwendbarer Mikrofon-Button — überall dort, wo Text eingegeben wird.
 function MicButton({ onText, className = '' }) {
   const s = useSpeech(onText);
@@ -89,10 +146,143 @@ function MicButton({ onText, className = '' }) {
 function Wordmark({ size=26, color='var(--ink-900)' }) {
   return <span style={{ fontFamily:"'Geist',sans-serif", fontSize:size, fontWeight:500, letterSpacing:'-0.055em', color, lineHeight:0.85 }}>Telos</span>;
 }
-function TelosLockup({ size=26, accent='var(--terracotta)' }) {
-  return <span style={{ display:'inline-flex', alignItems:'baseline' }}><Wordmark size={size} />
-    <span style={{ width:size*0.18, height:size*0.18, borderRadius:99, background:accent, display:'inline-block', marginLeft:size*0.06, transform:`translateY(-${size*0.02}px)` }} /></span>;
+// Markenpräziser Lockup: heavy Geist + Terracotta-Punkt + optionales ·NOMOS-Sub (Mono).
+function TelosLockup({ size=26, accent='var(--terracotta)', color='var(--ink-900)', showSub=false }) {
+  const dot = size * 0.135;
+  return (
+    <span style={{ display:'inline-flex', alignItems:'baseline', lineHeight:1, gap:size*0.42 }}>
+      <span style={{ fontFamily:"'Geist',sans-serif", fontWeight:700, fontSize:size, lineHeight:1, color, letterSpacing:'-0.04em', display:'inline-flex', alignItems:'baseline' }}>
+        Telos<span style={{ display:'inline-block', width:dot, height:dot, borderRadius:99, background:accent, marginLeft:dot*0.32 }} />
+      </span>
+      {showSub && (
+        <span className="brand-mono" style={{ fontSize:size*0.40, color:'var(--ink-500)', letterSpacing:'0.20em', fontWeight:500, textTransform:'uppercase' }}>· Nomos</span>
+      )}
+    </span>
+  );
 }
+// useTheme: liest/persistiert 'light'|'dark' und setzt data-theme auf <html>.
+function useTheme() {
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem('nomos_theme') || 'light'; } catch { return 'light'; }
+  });
+  useEffect(() => {
+    try { document.documentElement.setAttribute('data-theme', theme); } catch {}
+    try { localStorage.setItem('nomos_theme', theme); } catch {}
+  }, [theme]);
+  return { theme, setTheme, toggle: () => setTheme(t => t === 'dark' ? 'light' : 'dark') };
+}
+// ThemeToggle — kleine Pill in der Nav, Light/Dark Sonne/Mond.
+function ThemeToggle({ theme, onToggle }) {
+  return (
+    <button type="button" onClick={onToggle} title={theme==='dark' ? 'Light-Mode' : 'Dark-Mode'} aria-label="Theme umschalten"
+      className="brand-mono inline-flex items-center gap-2 rounded-full border border-cream-300 bg-cream-50 px-3 py-1.5 text-ink-700 transition-colors hover:border-ink-900"
+      style={{ fontSize:10, letterSpacing:'0.14em' }}>
+      <span>{theme==='dark' ? 'DARK' : 'LIGHT'}</span>
+      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-cream-300 bg-cream-100">
+        {theme==='dark'
+          ? <svg width="12" height="12" viewBox="0 0 16 16"><path d="M13 8.5a5 5 0 1 1-5.5-5 4 4 0 0 0 5.5 5z" fill="var(--honey)" /></svg>
+          : <svg width="12" height="12" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3.2" fill="var(--terracotta)" /><g stroke="var(--terracotta)" strokeWidth="1.4" strokeLinecap="round"><path d="M8 1.5v2"/><path d="M8 12.5v2"/><path d="M1.5 8h2"/><path d="M12.5 8h2"/><path d="M3.2 3.2l1.4 1.4"/><path d="M11.4 11.4l1.4 1.4"/><path d="M3.2 12.8l1.4-1.4"/><path d="M11.4 4.6l1.4-1.4"/></g></svg>}
+      </span>
+    </button>
+  );
+}
+// BackdropArc: ambient gradient-Bogen, fixed im Viewport, driftet pro Stage. pointer-events:none.
+function BackdropArc({ stage='landing' }) {
+  const cfg = {
+    landing:    { rotate:-8,  scale:1.0,  x:30,  y:10, opacity:1.0 },
+    analyze:    { rotate:-42, scale:.78,  x:-30, y:30, opacity:.85 },
+    dashboard:  { rotate:18,  scale:.92,  x:50,  y:25, opacity:.55 },
+    antrag:     { rotate:90,  scale:1.10, x:50,  y:60, opacity:.50 },
+    entdecken:  { rotate:120, scale:.86,  x:40,  y:40, opacity:.55 },
+    businessplan:{ rotate:160, scale:.95, x:10,  y:30, opacity:.45 },
+    marketing:  { rotate:200, scale:.95, x:-10, y:30, opacity:.40 },
+  }[stage] || { rotate:-8, scale:1.0, x:30, y:10, opacity:1.0 };
+  const transform = `translate(${cfg.x}%, ${cfg.y}%) scale(${cfg.scale}) rotate(${cfg.rotate}deg)`;
+  return (
+    <div aria-hidden="true" style={{ position:'fixed', right:'-30vh', top:'18vh', width:'88vh', height:'88vh', pointerEvents:'none', zIndex:0, transform, opacity:cfg.opacity, transition:'transform 1100ms var(--ease-out), opacity 700ms var(--ease-out)' }}>
+      <svg viewBox="0 0 200 200" width="100%" height="100%">
+        <defs>
+          <linearGradient id="bdarc" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="var(--terracotta-300, var(--terracotta))" stopOpacity="0" />
+            <stop offset="40%" stopColor="var(--terracotta)" stopOpacity=".85" />
+            <stop offset="100%" stopColor="var(--terracotta-700, var(--terracotta))" stopOpacity=".95" />
+          </linearGradient>
+        </defs>
+        <path d="M 20 100 A 80 80 0 1 1 180 100" fill="none" stroke="url(#bdarc)" strokeWidth="22" strokeLinecap="round" />
+        <path d="M 40 100 A 60 60 0 0 1 160 100" fill="none" stroke="var(--terracotta)" strokeWidth="2" strokeOpacity=".18" />
+      </svg>
+    </div>
+  );
+}
+
+// BrandGlyph: Sub-Brand-Marken (nomos · elenchos · metron · agora · hermes).
+function BrandGlyph({ name, size=44, color='var(--accent)' }) {
+  const s = size * 0.045;
+  const common = { width:size, height:size, viewBox:'0 0 64 64', fill:'none', stroke:color, strokeWidth:s, strokeLinecap:'round', strokeLinejoin:'round' };
+  const glyphs = {
+    nomos: (
+      <svg {...common}>
+        <circle cx="10" cy="14" r="1.6" fill={color} stroke="none" />
+        <circle cx="18" cy="20" r="1.6" fill={color} stroke="none" />
+        <circle cx="8"  cy="26" r="1.6" fill={color} stroke="none" />
+        <circle cx="22" cy="10" r="1.6" fill={color} stroke="none" />
+        <circle cx="14" cy="34" r="1.6" fill={color} stroke="none" />
+        {[40,48,56].flatMap(y => [40,48,56].map(x => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.7" fill={color} stroke="none" />))}
+        <line x1="40" y1="40" x2="56" y2="40" opacity=".5" />
+        <line x1="40" y1="48" x2="56" y2="48" opacity=".5" />
+        <line x1="40" y1="40" x2="40" y2="56" opacity=".5" />
+        <line x1="48" y1="40" x2="48" y2="56" opacity=".5" />
+        <path d="M 22 26 Q 32 22 38 38" opacity=".7" strokeDasharray="2 3" />
+        <path d="M 34 34 L 38 38 L 34 40" opacity=".7" />
+      </svg>
+    ),
+    elenchos: (
+      <svg {...common}>
+        <circle cx="32" cy="32" r="22" />
+        <circle cx="32" cy="32" r="14" opacity=".35" />
+        <path d="m 25 32 L 30 37 L 40 25" strokeWidth={s*1.1} />
+      </svg>
+    ),
+    metron: (
+      <svg {...common}>
+        <path d="M 8 42 A 24 24 0 0 1 56 42" />
+        {[0,1,2,3,4,5,6].map(i => {
+          const a = Math.PI * (1 - i/6); const major = i%2===0; const r1=24, r2=major?17:20;
+          const x1=32+Math.cos(a)*r1, y1=42-Math.sin(a)*r1, x2=32+Math.cos(a)*r2, y2=42-Math.sin(a)*r2;
+          return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} opacity={major?1:0.45} />;
+        })}
+        <line x1="32" y1="42" x2="42" y2="22" />
+        <circle cx="32" cy="42" r="2.8" fill={color} stroke="none" />
+      </svg>
+    ),
+    agora: (
+      <svg {...common}>
+        <circle cx="32" cy="32" r="4.5" fill={color} stroke="none" />
+        {[0,1,2,3,4,5].map(i => {
+          const a = (i/6)*Math.PI*2 + Math.PI/6; const r=21;
+          const x=32+Math.cos(a)*r, y=32+Math.sin(a)*r; const filled = i===0||i===3;
+          return (
+            <g key={i}>
+              <line x1={32+Math.cos(a)*6.5} y1={32+Math.sin(a)*6.5} x2={x-Math.cos(a)*3.5} y2={y-Math.sin(a)*3.5} opacity=".45" strokeDasharray={filled?'0':'1.5 2'} />
+              <circle cx={x} cy={y} r="2.6" fill={filled?color:'none'} />
+            </g>
+          );
+        })}
+      </svg>
+    ),
+    hermes: (
+      <svg {...common}>
+        <path d="M 6 46 Q 18 22 28 30" />
+        <path d="M 58 46 Q 46 22 36 30" />
+        <path d="M 12 46 Q 22 32 28 32" opacity=".45" />
+        <path d="M 52 46 Q 42 32 36 32" opacity=".45" />
+        <path d="m 25 33 L 30 38 L 39 26" strokeWidth={s*1.1} />
+      </svg>
+    ),
+  };
+  return glyphs[String(name).toLowerCase()] || <svg {...common}><circle cx="32" cy="32" r="20" /></svg>;
+}
+
 function ArcMark({ size=96, color='var(--terracotta)' }) {
   const sw = size*0.085;
   return <svg width={size} height={size*0.62} viewBox="0 0 100 62" fill="none" style={{ overflow:'visible' }}>
@@ -1025,6 +1215,7 @@ function App() {
   const [error, setError] = useState('');
   const [pitchId, setPitchId] = useState(null);
   const auth = useAuth();
+  const themeCtl = useTheme();
   const [authOpen, setAuthOpen] = useState(false);
 
   // Matching-Pipeline — liegt in App, läuft daher beim Navigieren weiter und geht nicht verloren.
@@ -1129,10 +1320,20 @@ function App() {
 
   useEffect(() => { window.scrollTo({ top:0, behavior:'instant' }); }, [page, view]);
 
+  // Ambient-Stage für den BackdropArc — ableiten aus aktuellem page/view.
+  const stage = page==='entdecken' ? 'entdecken'
+    : page==='businessplan' ? 'businessplan'
+    : page !== 'home' ? 'marketing'
+    : view==='analyze' ? 'analyze'
+    : view==='dashboard' ? 'dashboard'
+    : view==='antrag' ? 'antrag'
+    : 'landing';
+
   return (
     <div className="min-h-screen bg-cream-100">
+      <BackdropArc stage={stage} />
       <Nav page={page} go={go} onLogo={()=>{setPage('home');setView('landing');}} startPitch={startPitch} auth={auth} onLogin={requireLogin}
-        flowBusy={flowBusy} flowLabel={flowLabel} onResume={resumeFlow} />
+        flowBusy={flowBusy} flowLabel={flowLabel} onResume={resumeFlow} themeCtl={themeCtl} />
       {page==='verlauf' ? <Verlauf auth={auth} onLogin={requireLogin} openPitch={openPitch} />
         : page==='profil' ? <Profil auth={auth} onLogin={requireLogin} />
         : page==='entdecken' ? <PageExplore startPitch={startPitch} />
@@ -1154,7 +1355,7 @@ function App() {
 
 const NAV_ITEMS = [['Entdecken','entdecken'],['Produkt','produkt'],['Nomos-Engine','engine'],['Preise','preise'],['Vision','vision']];
 
-function Nav({ page, go, onLogo, startPitch, auth, onLogin, flowBusy, flowLabel, onResume }) {
+function Nav({ page, go, onLogo, startPitch, auth, onLogin, flowBusy, flowLabel, onResume, themeCtl }) {
   const [open, setOpen] = useState(false);
   const navTo = (p) => { go(p); setOpen(false); };
   return (
@@ -1173,6 +1374,7 @@ function Nav({ page, go, onLogo, startPitch, auth, onLogin, flowBusy, flowLabel,
           ))}
         </nav>
         <div className="flex items-center gap-2">
+          {themeCtl && <ThemeToggle theme={themeCtl.theme} onToggle={themeCtl.toggle} />}
           {flowBusy && flowLabel && (
             <button onClick={onResume} title="Zurück zur laufenden Analyse"
               className="hidden items-center gap-1.5 rounded-full border border-cobalt/40 bg-cobalt/10 px-3 py-1.5 text-cobalt transition-colors hover:bg-cobalt/20 sm:flex">

@@ -4,9 +4,24 @@ export default {
   theme: {
     extend: {
       colors: {
-        cream: { 50: "#F7F2E7", 100: "#F1ECDE", 200: "#E8E1CE", 300: "#DCD3BB", 400: "#C8BD9F" },
-        ink: { 900: "#26221C", 700: "#46403A", 500: "#736C63", 300: "#A8A199" },
-        terracotta: "#C26A4C", honey: "#D5A55B", cobalt: "#4D6A8B", sage: "#8A9A78",
+        // CSS-Var-getrieben → Klassen flippen mit data-theme="dark" und unterstützen /opacity-Modifier.
+        cream: {
+          50:  "rgb(var(--c-cream-50)  / <alpha-value>)",
+          100: "rgb(var(--c-cream-100) / <alpha-value>)",
+          200: "rgb(var(--c-cream-200) / <alpha-value>)",
+          300: "rgb(var(--c-cream-300) / <alpha-value>)",
+          400: "rgb(var(--c-cream-400) / <alpha-value>)",
+        },
+        ink: {
+          900: "rgb(var(--c-ink-900) / <alpha-value>)",
+          700: "rgb(var(--c-ink-700) / <alpha-value>)",
+          500: "rgb(var(--c-ink-500) / <alpha-value>)",
+          300: "rgb(var(--c-ink-300) / <alpha-value>)",
+        },
+        terracotta: "rgb(var(--c-terracotta) / <alpha-value>)",
+        honey:      "rgb(var(--c-honey)      / <alpha-value>)",
+        cobalt:     "rgb(var(--c-cobalt)     / <alpha-value>)",
+        sage:       "rgb(var(--c-sage)       / <alpha-value>)",
       },
       fontFamily: {
         sans: ["Geist", "ui-sans-serif", "system-ui", "sans-serif"],
