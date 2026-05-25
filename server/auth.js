@@ -5,10 +5,14 @@ import { repo } from "./db.js";
 
 const COOKIE = "nomos_session";
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 Tage
-const SECRET = process.env.SESSION_SECRET || "dev-only-insecure-secret-change-me";
 if (!process.env.SESSION_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    console.error("[Nomos] FATAL: SESSION_SECRET muss in Produktion gesetzt sein.");
+    process.exit(1);
+  }
   console.warn("[Nomos] WARN: SESSION_SECRET nicht gesetzt — für Produktion unbedingt setzen.");
 }
+const SECRET = process.env.SESSION_SECRET || "dev-only-insecure-secret-change-me";
 
 export function hashPassword(pw) {
   const salt = crypto.randomBytes(16).toString("hex");

@@ -7,3 +7,7 @@ node_modules/
 uploads/
 data/
 .DS_Store
+# Build-Artefakte (werden via `npm run build` / postinstall erzeugt)
+public/app.js
+public/app.js.map
+public/app.css

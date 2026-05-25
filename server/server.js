@@ -4,10 +4,12 @@ import multer from "multer";
 import mammoth from "mammoth";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import dns from "node:dns/promises";
+import net from "node:net";
 import Anthropic from "@anthropic-ai/sdk";
 
 import { GRANTS, getGrantById } from "./grants.js";
-import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, RESOLVE_SYSTEM, BUSINESSPLAN_SYSTEM, BUSINESSPLAN_REFINE_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, COMPLIANCE_SCHEMA, complianceSystem, CHECKLIST_SCHEMA, checklistSystem, antragSystem } from "./prompts.js";
+import { ANALYZE_SYSTEM, ANALYZE_SCHEMA, TRANSLATE_SYSTEM, LIVESEARCH_SYSTEM, RESOLVE_SYSTEM, BUSINESSPLAN_SYSTEM, BUSINESSPLAN_REFINE_SYSTEM, FOLLOWUP_SYSTEM, FOLLOWUP_SCHEMA, RESCORE_SYSTEM, COMPLIANCE_SCHEMA, complianceSystem, CHECKLIST_SCHEMA, checklistSystem, antragSystem, EXPLORE_SYSTEM } from "./prompts.js";
 import { buildDocx } from "./export.js";
 import { readFields, fillFields } from "./forms.js";
 import { repo, dbKind } from "./db.js";
@@ -24,7 +26,7 @@ const MODELS = {
 const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-22.2";
+const VERSION = "2026-05-22.10";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -40,8 +42,34 @@ function client() {
 }
 
 const app = express();
+app.set("trust proxy", 1); // hinter Proxy korrekte req.ip
 app.use(express.json({ limit: "1mb" }));
 app.use("/api", attachUser);
+
+// Schlankes In-Memory-Rate-Limit für teure KI-Endpunkte (Kosten-/Missbrauchsschutz).
+const RL_WINDOW_MS = 60 * 1000;
+const RL_MAX = Number(process.env.NOMOS_RATE_LIMIT || 30); // Anfragen pro Fenster und IP
+const RL_PATHS = new Set([
+  "/api/analyze", "/api/rescore", "/api/followup", "/api/livesearch", "/api/resolve",
+  "/api/generate", "/api/businessplan", "/api/businessplan/refine", "/api/translate",
+  "/api/compliance", "/api/checklist", "/api/fillform", "/api/fillform-url", "/api/explore",
+]);
+const rlHits = new Map(); // ip -> { count, reset }
+setInterval(() => { const now = Date.now(); for (const [k, v] of rlHits) if (v.reset <= now) rlHits.delete(k); }, RL_WINDOW_MS).unref?.();
+app.use((req, res, next) => {
+  if (!RL_PATHS.has(req.path)) return next();
+  const now = Date.now();
+  const ip = req.ip || req.socket?.remoteAddress || "unknown";
+  let e = rlHits.get(ip);
+  if (!e || e.reset <= now) { e = { count: 0, reset: now + RL_WINDOW_MS }; rlHits.set(ip, e); }
+  e.count++;
+  if (e.count > RL_MAX) {
+    res.setHeader("Retry-After", Math.ceil((e.reset - now) / 1000));
+    return res.status(429).json({ error: "Zu viele Anfragen — einen Moment, dann erneut versuchen." });
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, "..", "public"), {
   setHeaders(res, filePath) {
     // HTML nie aus dem Browser-Cache bedienen — verhindert veraltete Ansichten.
@@ -75,7 +103,7 @@ async function buildPlanContent({ text, file }) {
     }
   }
 
-  if (extracted) blocks.push({ type: "text", text: extracted });
+  if (extracted) blocks.push({ type: "text", text: extracted.slice(0, 120000) }); // Cap gegen übergroße Eingaben
   return blocks;
 }
 
@@ -123,10 +151,10 @@ app.post("/api/analyze", upload.single("document"), async (req, res) => {
 
     const stream = client().messages.stream({
       model: MODEL,
-      max_tokens: 16000,
+      max_tokens: 6000,
       thinking: { type: "adaptive" },
       output_config: {
-        effort: "high",
+        effort: "medium",
         format: { type: "json_schema", schema: ANALYZE_SCHEMA },
       },
       system: [{ type: "text", text: ANALYZE_SYSTEM, cache_control: { type: "ephemeral" } }],
@@ -169,8 +197,7 @@ app.post("/api/followup", async (req, res) => {
     const stream = client().messages.stream({
       model: MODELS.fast,
       max_tokens: 4000,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium", format: { type: "json_schema", schema: FOLLOWUP_SCHEMA } },
+      output_config: { format: { type: "json_schema", schema: FOLLOWUP_SCHEMA } },
       system: [{ type: "text", text: FOLLOWUP_SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: `Finde offene, entscheidende Rückfragen für dieses Vorhaben:\n\n${context}` }],
     });
@@ -199,9 +226,9 @@ app.post("/api/rescore", async (req, res) => {
 
     const stream = client().messages.stream({
       model: MODEL,
-      max_tokens: 16000,
+      max_tokens: 6000,
       thinking: { type: "adaptive" },
-      output_config: { effort: "high", format: { type: "json_schema", schema: ANALYZE_SCHEMA } },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: ANALYZE_SCHEMA } },
       system: [{ type: "text", text: RESCORE_SYSTEM, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: `Bewerte das Matching mit den Zusatzinfos neu:\n\n${context}` }],
     });
@@ -215,77 +242,112 @@ app.post("/api/rescore", async (req, res) => {
   }
 });
 
-// ── /api/livesearch (Web-Suche nach aktuellen Förderprogrammen) ──────────────
-app.post("/api/livesearch", async (req, res) => {
-  try {
-    const { projektname, einzeiler, branche, phase, region } = req.body || {};
-    if (!einzeiler && !projektname) return res.status(400).json({ error: "Keine Vorhabensbeschreibung." });
-
-    const heute = new Date().toISOString().slice(0, 10);
-    const query =
-      `Heutiges Datum: ${heute}\n` +
-      `Vorhaben: ${projektname || "(unbenannt)"}\n` +
-      `Beschreibung: ${einzeiler || ""}\n` +
-      `Branche: ${branche || "k.A."}\nPhase: ${phase || "k.A."}\nRegion: ${region || "k.A."}\n\n` +
-      `Finde möglichst ALLE aktuell beantragbaren, realen öffentlichen Förderprogramme, die zu diesem Vorhaben passen. Prüfe je Programm, ob heute (${heute}) eine Antragstellung noch möglich ist, und lasse abgelaufene Programme weg.`;
-
-    let messages = [{ role: "user", content: query }];
-    let final = null;
-    const c = client();
-    for (let i = 0; i < 8; i++) {
-      const resp = await c.messages.create({
-        model: MODEL,
-        max_tokens: 8000,
-        thinking: { type: "adaptive" },
-        output_config: { effort: "medium" },
-        system: [{ type: "text", text: LIVESEARCH_SYSTEM, cache_control: { type: "ephemeral" } }],
-        tools: [{ type: "web_search_20260209", name: "web_search" }],
-        messages,
-      });
-      if (resp.stop_reason === "pause_turn") {
-        messages = [{ role: "user", content: query }, { role: "assistant", content: resp.content }];
-        continue;
-      }
-      final = resp;
-      break;
+// Eine Web-Recherche-Runde: Suchschleife bis zur finalen Antwort, dann Programme extrahieren.
+// Akkumuliert die Konversation korrekt (assistant-Turns werden angehängt, nicht überschrieben),
+// damit web-search/tool-Resultate über mehrere pause_turn-Runden erhalten bleiben.
+async function webSearchPrograms(query, { maxIters = 8, idPrefix = "live", system = LIVESEARCH_SYSTEM } = {}) {
+  const messages = [{ role: "user", content: query }];
+  let final = null;
+  const c = client();
+  for (let i = 0; i < maxIters; i++) {
+    const resp = await c.messages.create({
+      model: MODEL,
+      max_tokens: 8000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium" },
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+      tools: [{ type: "web_search_20260209", name: "web_search" }],
+      messages,
+    });
+    if (resp.stop_reason === "pause_turn") {
+      messages.push({ role: "assistant", content: resp.content });
+      continue;
     }
-    if (!final) throw new Error("Websuche nicht abgeschlossen.");
+    final = resp;
+    break;
+  }
+  // Auch bei maxIters-Ende: alle bisher gesammelten Text-Blöcke (inkl. fence-JSON) auswerten.
+  const sources = final ? [final, ...messages.filter((m) => m.role === "assistant")] : messages.filter((m) => m.role === "assistant");
+  const fullText = sources.flatMap((m) => (m.content || []).filter((b) => b.type === "text").map((b) => b.text)).join("\n\n");
+  return extractPrograms(fullText, idPrefix);
+}
 
-    const fullText = final.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
-    const programs = extractPrograms(fullText);
-    res.json({ programs });
+// ── /api/livesearch (web-getriebene Treffer, progressiv in zwei Wellen gestreamt) ──
+app.post("/api/livesearch", async (req, res) => {
+  const { projektname, einzeiler, branche, phase, region } = req.body || {};
+  if (!einzeiler && !projektname) return res.status(400).json({ error: "Keine Vorhabensbeschreibung." });
+  try { client(); } catch (err) { return sendError(res, err); } // fehlender Key → sauberes JSON-503
+
+  const heute = new Date().toISOString().slice(0, 10);
+  const base =
+    `Heutiges Datum: ${heute}\n` +
+    `Vorhaben: ${projektname || "(unbenannt)"}\n` +
+    `Beschreibung: ${einzeiler || ""}\n` +
+    `Branche: ${branche || "k.A."}\nPhase: ${phase || "k.A."}\nRegion: ${region || "k.A."}\n\n`;
+  const q1 = base + `Finde die wichtigsten, naheliegend passenden, HEUTE (${heute}) noch beantragbaren öffentlichen Förderprogramme (Bund/Länder/EU) für dieses Vorhaben. Konzentriere dich auf die offensichtlichsten Treffer.`;
+  const q2 = base + `Finde WEITERE, weniger offensichtliche, HEUTE (${heute}) noch beantragbare öffentliche Förderprogramme für dieses Vorhaben — auch Landes- und EU-Programme sowie Nischen-/Branchenförderungen. Vermeide Allerwelts-Treffer.`;
+
+  res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  let aborted = false;
+  res.on("close", () => { if (!res.writableEnded) aborted = true; });
+  const seen = new Set();
+  const emit = (programs) => {
+    for (const p of programs) {
+      const k = (p.name || "").toLowerCase().trim();
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      if (!aborted) res.write(JSON.stringify({ program: p }) + "\n");
+    }
+  };
+
+  try {
+    emit(await webSearchPrograms(q1, { maxIters: 4, idPrefix: "live1" })); // Welle 1: schnell
+    if (aborted) return;
+    emit(await webSearchPrograms(q2, { maxIters: 6, idPrefix: "live2" })); // Welle 2: breiter
+    if (!aborted) res.end();
   } catch (err) {
-    sendError(res, err);
+    if (aborted) return;
+    res.write(JSON.stringify({ error: err.message || "Websuche fehlgeschlagen." }) + "\n");
+    res.end();
   }
 });
+
+// Konkrete Programm-/Formular-URL per Web-Suche auflösen (für /api/resolve und Auto-Formular).
+async function resolveProgram({ name, provider, region }) {
+  const query = `Programm: ${name}${provider ? " · " + provider : ""}${region ? " · " + region : ""}\nFinde die konkrete offizielle Programmseite und ggf. das Antragsformular.`;
+  let messages = [{ role: "user", content: query }];
+  let final = null;
+  const c = client();
+  for (let i = 0; i < 5; i++) {
+    const resp = await c.messages.create({
+      model: MODELS.deep,
+      max_tokens: 3000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
+      system: [{ type: "text", text: RESOLVE_SYSTEM, cache_control: { type: "ephemeral" } }],
+      tools: [{ type: "web_search_20260209", name: "web_search" }],
+      messages,
+    });
+    if (resp.stop_reason === "pause_turn") { messages = [{ role: "user", content: query }, { role: "assistant", content: resp.content }]; continue; }
+    final = resp; break;
+  }
+  if (!final) throw new Error("Auflösung nicht abgeschlossen.");
+  const txt = final.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  const obj = extractJson(txt) || {};
+  const httpOk = (u) => (typeof u === "string" && /^https?:\/\//.test(u) ? u : null);
+  return { url: httpOk(obj.url), formUrl: httpOk(obj.formUrl), hinweis: String(obj.hinweis || "").slice(0, 300) };
+}
 
 // ── /api/resolve (konkrete Programm-URL + Formular per Web-Suche) ─────────────
 app.post("/api/resolve", async (req, res) => {
   try {
     const { name, provider, region } = req.body || {};
     if (!name) return res.status(400).json({ error: "Kein Programmname." });
-    const query = `Programm: ${name}${provider ? " · " + provider : ""}${region ? " · " + region : ""}\nFinde die konkrete offizielle Programmseite und ggf. das Antragsformular.`;
-    let messages = [{ role: "user", content: query }];
-    let final = null;
-    const c = client();
-    for (let i = 0; i < 5; i++) {
-      const resp = await c.messages.create({
-        model: MODELS.deep,
-        max_tokens: 3000,
-        thinking: { type: "adaptive" },
-        output_config: { effort: "low" },
-        system: [{ type: "text", text: RESOLVE_SYSTEM, cache_control: { type: "ephemeral" } }],
-        tools: [{ type: "web_search_20260209", name: "web_search" }],
-        messages,
-      });
-      if (resp.stop_reason === "pause_turn") { messages = [{ role: "user", content: query }, { role: "assistant", content: resp.content }]; continue; }
-      final = resp; break;
-    }
-    if (!final) throw new Error("Auflösung nicht abgeschlossen.");
-    const txt = final.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
-    const obj = extractJson(txt) || {};
-    const httpOk = (u) => typeof u === "string" && /^https?:\/\//.test(u) ? u : null;
-    res.json({ url: httpOk(obj.url), formUrl: httpOk(obj.formUrl), hinweis: String(obj.hinweis || "").slice(0, 300) });
+    res.json(await resolveProgram({ name, provider, region }));
   } catch (err) { sendError(res, err); }
 });
 
@@ -328,7 +390,7 @@ function salvageAnalysis(text) {
   return null;
 }
 
-function extractPrograms(text) {
+function extractPrograms(text, idPrefix = "live") {
   let jsonStr = null;
   const fenced = text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/);
   if (fenced) jsonStr = fenced[1];
@@ -347,7 +409,7 @@ function extractPrograms(text) {
         const abgelaufen = /abgelaufen|verstrichen|geschlossen|beendet/i.test(frist);
         const antragMoeglich = p.antragMoeglich === false ? false : !abgelaufen;
         return {
-          id: `live-${idx}`,
+          id: `${idPrefix}-${idx}`,
           live: true,
           name: String(p.name || "").slice(0, 200),
           provider: String(p.provider || "").slice(0, 120),
@@ -362,7 +424,7 @@ function extractPrograms(text) {
       })
       .filter((p) => p.name && p.antragMoeglich)
       .sort((a, b) => b.fit - a.fit)
-      .slice(0, 10);
+      .slice(0, 50);
   } catch {
     return [];
   }
@@ -560,8 +622,7 @@ app.post("/api/compliance", async (req, res) => {
     const stream = client().messages.stream({
       model: MODELS.fast,
       max_tokens: 4000,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium", format: { type: "json_schema", schema: COMPLIANCE_SCHEMA } },
+      output_config: { format: { type: "json_schema", schema: COMPLIANCE_SCHEMA } },
       system: [{ type: "text", text: complianceSystem(grant), cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: `Prüfe diesen Antragsentwurf:\n\n${String(content).slice(0, 60000)}` }],
     });
@@ -584,8 +645,7 @@ app.post("/api/checklist", async (req, res) => {
     const stream = client().messages.stream({
       model: MODELS.fast,
       max_tokens: 3000,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium", format: { type: "json_schema", schema: CHECKLIST_SCHEMA } },
+      output_config: { format: { type: "json_schema", schema: CHECKLIST_SCHEMA } },
       system: [{ type: "text", text: checklistSystem(grant), cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: plan ? `Vorhaben-Kontext:\n${plan}\n\nErstelle die Checkliste.` : "Erstelle die Checkliste für diese Förderlinie." }],
     });
@@ -614,38 +674,165 @@ const FILLFORM_SCHEMA = {
   },
   required: ["fields"],
 };
+// KI-Mapping der Antrags-/Plan-Inhalte auf die Formularfelder + Befüllung.
+// Wirft mit aussagekräftiger Meldung, wenn kein ausfüllbares AcroForm vorliegt.
+async function fillPdf(pdfBuffer, content) {
+  let fields;
+  try { fields = await readFields(pdfBuffer); }
+  catch { const e = new Error("PDF konnte nicht gelesen werden."); e.status = 400; throw e; }
+  if (!fields.length) { const e = new Error("Kein ausfüllbares Formular (AcroForm-Felder) erkannt."); e.status = 400; throw e; }
+
+  const context = String(content || "").slice(0, 50000);
+  const fieldList = fields
+    .map((f) => `- ${f.name} (${f.type})${f.options && f.options.length ? ` — erlaubte Werte: ${f.options.join(" | ")}` : ""}`)
+    .join("\n");
+  const sys = `Du bist „Nomos". Fülle die Felder eines deutschen Förder-/Antragsformulars auf Basis des bereitgestellten Antrags/Businessplans aus.
+Regeln:
+- Nutze NUR Informationen aus dem Kontext. Felder ohne belegbare Info LEER lassen (weglassen), niemals raten.
+- Auswahl-/Radio-/Dropdown-Felder: gib GENAU einen der unter „erlaubte Werte" gelisteten Werte zurück (exakte Schreibweise). Passt kein gelisteter Wert, lass das Feld weg.
+- Anrede/Geschlecht NUR setzen, wenn das Geschlecht der Person eindeutig aus dem Kontext hervorgeht; bei Unklarheit weglassen (nicht raten).
+- Datumsformat TT.MM.JJJJ. Checkboxen: "Ja" oder weglassen.
+- Kurze Faktenfelder (Name, Ort, Datum, Beträge): knapp und korrekt.
+- Lange Freitextfelder (Feldname enthält z. B. Vorhaben, Beschreibung, Projekt, Ziele, Zusammenfassung, Darstellung): AUSFÜHRLICH, fachlich präzise und in formellem Behördendeutsch verschriftlichen — vollständige Sätze, mehrere Sätze/Absätze, nominalstilbetont, ohne Marketing. Nutze den Antragsentwurf als Grundlage.
+Gib ausschließlich das JSON-Schema zurück (Liste {name,value} nur für befüllbare Felder).`;
+  const stream = client().messages.stream({
+    model: MODELS.deep,
+    max_tokens: 16000,
+    thinking: { type: "adaptive" },
+    output_config: { effort: "medium", format: { type: "json_schema", schema: FILLFORM_SCHEMA } },
+    system: [{ type: "text", text: sys }],
+    messages: [{ role: "user", content: `FORMULARFELDER:\n${fieldList}\n\nANTRAG/BUSINESSPLAN:\n${context}` }],
+  });
+  const message = await stream.finalMessage();
+  const tb = message.content.find((b) => b.type === "text");
+  let mapping = {};
+  try { for (const f of (JSON.parse(tb.text).fields || [])) if (f && f.name) mapping[f.name] = f.value; } catch {}
+  return fillFields(pdfBuffer, mapping);
+}
+
+function sendFilledPdf(res, buffer, filled, projektname) {
+  const safe = String(projektname || "Antrag").replace(/[^\w]+/g, "_").slice(0, 60) || "Antrag";
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${safe}_ausgefuellt.pdf"`);
+  res.setHeader("X-Fields-Filled", String(filled));
+  res.send(buffer);
+}
+
 app.post("/api/fillform", upload.single("form"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Bitte ein ausfüllbares PDF-Formular hochladen." });
-    let fields;
-    try { fields = await readFields(req.file.buffer); }
-    catch { return res.status(400).json({ error: "PDF konnte nicht gelesen werden." }); }
-    if (!fields.length) return res.status(400).json({ error: "Kein ausfüllbares Formular (AcroForm-Felder) erkannt." });
+    const { buffer, filled } = await fillPdf(req.file.buffer, req.body?.content);
+    sendFilledPdf(res, buffer, filled, req.body?.projektname || "Antrag");
+  } catch (err) { sendError(res, err); }
+});
 
-    const context = String(req.body?.content || "").slice(0, 50000);
-    const fieldList = fields.map((f) => `- ${f.name} (${f.type})`).join("\n");
-    const sys = `Du bist „Nomos". Fülle die Felder eines deutschen Förder-/Antragsformulars auf Basis des bereitgestellten Antrags/Businessplans aus.
-Regeln: Nutze NUR Informationen aus dem Kontext. Felder ohne belegbare Info LEER lassen (nicht erraten). Datumsformat TT.MM.JJJJ. Checkboxen: "Ja"/"" verwenden. Werte knapp und korrekt.
-Gib ausschließlich das JSON-Schema zurück (Liste {name,value} nur für befüllbare Felder).`;
-    const stream = client().messages.stream({
-      model: MODELS.deep,
-      max_tokens: 8000,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium", format: { type: "json_schema", schema: FILLFORM_SCHEMA } },
-      system: [{ type: "text", text: sys }],
-      messages: [{ role: "user", content: `FORMULARFELDER:\n${fieldList}\n\nANTRAG/BUSINESSPLAN:\n${context}` }],
-    });
-    const message = await stream.finalMessage();
-    const tb = message.content.find((b) => b.type === "text");
-    let mapping = {};
-    try { for (const f of (JSON.parse(tb.text).fields || [])) if (f && f.name) mapping[f.name] = f.value; } catch {}
+// SSRF-Schutz: private/loopback/link-local/metadata-Ziele blocken.
+function isPrivateIp(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split(".").map(Number);
+    return a === 0 || a === 10 || a === 127 ||
+      (a === 169 && b === 254) ||              // link-local / cloud-metadata (169.254.169.254)
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127) ||    // CGNAT
+      a >= 224;                                // multicast/reserved
+  }
+  const v = ip.toLowerCase().replace(/^\[|\]$/g, "");
+  if (v === "::1" || v === "::") return true;
+  if (v.startsWith("fe80") || v.startsWith("fc") || v.startsWith("fd")) return true; // link-local / ULA
+  if (v.startsWith("::ffff:")) return isPrivateIp(v.slice(7)); // IPv4-mapped
+  return false;
+}
+// Hostname auflösen und sicherstellen, dass KEINE Adresse intern ist.
+async function assertPublicHttpUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { const e = new Error("Ungültige Formular-URL."); e.status = 400; throw e; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") { const e = new Error("Nur http/https erlaubt."); e.status = 400; throw e; }
+  const host = u.hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") || host.endsWith(".local")) {
+    const e = new Error("Interne Adresse nicht erlaubt."); e.status = 400; throw e;
+  }
+  let addrs;
+  if (net.isIP(host)) addrs = [{ address: host }];
+  else { try { addrs = await dns.lookup(host, { all: true }); } catch { const e = new Error("Host nicht auflösbar."); e.status = 400; throw e; } }
+  if (addrs.some((a) => isPrivateIp(a.address))) { const e = new Error("Interne/private Adresse nicht erlaubt."); e.status = 400; throw e; }
+  return u.href;
+}
 
-    const { buffer, filled } = await fillFields(req.file.buffer, mapping);
-    const safe = String(req.body?.projektname || "Antrag").replace(/[^\w]+/g, "_").slice(0, 60) || "Antrag";
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${safe}_ausgefuellt.pdf"`);
-    res.setHeader("X-Fields-Filled", String(filled));
-    res.send(buffer);
+// PDF serverseitig laden (für Auto-Formular). SSRF-geschützt, Größe & PDF-Signatur geprüft,
+// Redirects manuell verfolgt und je Hop erneut validiert.
+async function fetchPdf(url) {
+  let current = await assertPublicHttpUrl(url);
+  let resp;
+  for (let hop = 0; hop < 4; hop++) {
+    try { resp = await fetch(current, { redirect: "manual", signal: AbortSignal.timeout(20000) }); }
+    catch { const e = new Error("Formular-PDF konnte nicht geladen werden."); e.status = 502; throw e; }
+    if (resp.status >= 300 && resp.status < 400 && resp.headers.get("location")) {
+      current = await assertPublicHttpUrl(new URL(resp.headers.get("location"), current).href);
+      continue;
+    }
+    break;
+  }
+  if (!resp || !resp.ok) { const e = new Error(`Formular nicht erreichbar (HTTP ${resp ? resp.status : "?"}).`); e.status = 502; throw e; }
+  const ct = (resp.headers.get("content-type") || "").toLowerCase();
+  const buf = Buffer.from(await resp.arrayBuffer());
+  if (buf.length > 10 * 1024 * 1024) { const e = new Error("Formular-PDF ist zu groß (>10 MB)."); e.status = 400; throw e; }
+  const looksPdf = ct.includes("pdf") || buf.subarray(0, 5).toString("latin1") === "%PDF-";
+  if (!looksPdf) { const e = new Error("Die gefundene Datei ist kein PDF-Formular."); e.status = 400; throw e; }
+  return buf;
+}
+
+// ── /api/fillform-url (Formular automatisch finden/laden und ausfüllen) ──────
+app.post("/api/fillform-url", async (req, res) => {
+  try {
+    let { formUrl } = req.body || {};
+    const { name, provider, region } = req.body || {};
+    if (!formUrl) {
+      if (!name) return res.status(400).json({ error: "Kein Programmname zur Formularsuche." });
+      const r = await resolveProgram({ name, provider, region });
+      formUrl = r.formUrl;
+      if (!formUrl) return res.status(404).json({ error: "Kein ausfüllbares Formular gefunden — bitte manuell hochladen.", url: r.url || null });
+    }
+    const pdf = await fetchPdf(formUrl);
+    const { buffer, filled } = await fillPdf(pdf, req.body?.content);
+    res.setHeader("X-Form-Url", encodeURI(formUrl));
+    sendFilledPdf(res, buffer, filled, req.body?.projektname || "Antrag");
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    sendError(res, err);
+  }
+});
+
+// ── /api/explore (Entdecken: aktuelle Beispiel-Förderungen je Kategorie, gecacht) ──
+const EXPLORE_CATEGORIES = [
+  { key: "top",            label: "Top für Gründer",        seed: "allgemeine Gründungs-, Startup- und Existenzgründungsförderung (z. B. Gründungszuschuss, EXIST, Mikromezzanin, Förderkredite)" },
+  { key: "ki",             label: "KI & Deep Tech",         seed: "Künstliche Intelligenz, Software, Deep Tech und Hochtechnologie" },
+  { key: "nachhaltigkeit", label: "Nachhaltigkeit & Klima", seed: "Klimaschutz, Nachhaltigkeit, Energiewende, Ressourceneffizienz und GreenTech" },
+  { key: "digitalisierung",label: "Digitalisierung",        seed: "Digitalisierung von Unternehmen, Industrie 4.0, digitale Geschäftsmodelle und IT" },
+  { key: "forschung",      label: "Forschung & Hochschule", seed: "Forschung, Innovation, Technologietransfer und hochschulnahe Ausgründungen" },
+  { key: "impact",         label: "Soziales & Impact",      seed: "Sozialunternehmen, Social Entrepreneurship, Gesundheit und gemeinwohlorientierte Vorhaben" },
+  { key: "eu",             label: "EU-Programme",           seed: "EU-Förderprogramme für KMU und Start-ups (z. B. Horizon Europe, EIC, EU-Programme)" },
+  { key: "regional",       label: "Regional / Länder",      seed: "regionale Landesförderprogramme der deutschen Bundesländer für Gründungen und KMU" },
+];
+const exploreCache = new Map(); // key -> { ts, programs }
+const EXPLORE_TTL = 24 * 60 * 60 * 1000;
+
+app.get("/api/explore/categories", (_req, res) =>
+  res.json({ categories: EXPLORE_CATEGORIES.map(({ key, label }) => ({ key, label })) }));
+
+app.get("/api/explore", async (req, res) => {
+  try {
+    const cat = EXPLORE_CATEGORIES.find((c) => c.key === String(req.query.category || ""));
+    if (!cat) return res.status(400).json({ error: "Unbekannte Kategorie." });
+    const cached = exploreCache.get(cat.key);
+    if (cached && Date.now() - cached.ts < EXPLORE_TTL) {
+      return res.json({ category: cat.key, label: cat.label, programs: cached.programs, cached: true });
+    }
+    const heute = new Date().toISOString().slice(0, 10);
+    const query = `Heutiges Datum: ${heute}\nThema/Kategorie: ${cat.label} — ${cat.seed}\n\nFinde aktuell beantragbare, reale öffentliche Förderprogramme zu diesem Thema für Gründer:innen und junge Unternehmen in Deutschland/EU.`;
+    const programs = await webSearchPrograms(query, { maxIters: 8, idPrefix: `exp-${cat.key}`, system: EXPLORE_SYSTEM });
+    exploreCache.set(cat.key, { ts: Date.now(), programs });
+    res.json({ category: cat.key, label: cat.label, programs, cached: false });
   } catch (err) { sendError(res, err); }
 });
 
@@ -676,11 +863,13 @@ async function streamText(res, { system, messages, max_tokens, effort, model, co
 
   try {
     for (let i = 0; i <= maxContinuations; i++) {
+      // Haiku unterstützt weder adaptive thinking noch den effort-Parameter.
+      const isHaiku = /haiku/i.test(useModel);
       const stream = c.messages.stream({
         model: useModel,
         max_tokens,
-        thinking: { type: "adaptive" },
-        output_config: { effort },
+        ...(isHaiku ? {} : { thinking: { type: "adaptive" } }),
+        ...(isHaiku ? {} : { output_config: { effort } }),
         system,
         messages: convo,
       });
