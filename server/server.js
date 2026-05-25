@@ -26,7 +26,7 @@ const MODELS = {
 const MODEL = MODELS.deep; // Default/Abwärtskompatibel
 // Bei jeder veröffentlichten Änderung erhöhen — im Footer sichtbar, damit ein
 // veralteter lokaler Stand sofort auffällt.
-const VERSION = "2026-05-22.8";
+const VERSION = "2026-05-22.9";
 
 // Anthropic-Client lazy initialisieren, damit der Server auch ohne Key startet
 // (und eine verständliche Fehlermeldung liefert statt zu crashen).
@@ -506,7 +506,7 @@ app.post("/api/generate", upload.single("document"), async (req, res) => {
     await streamText(res, {
       system: [{ type: "text", text: antragSystem(grant), cache_control: { type: "ephemeral" } }],
       max_tokens: 32000,
-      effort: "high",
+      effort: "medium",
       model: MODELS.deep,
       continue: true,
       messages: [

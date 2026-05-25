@@ -84,13 +84,15 @@
     /* Sample-Premium-Karten */
     .sample-card{display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:18px;border:1px solid var(--cream-300);background:var(--cream-50);text-align:left;transition:transform .3s var(--ease-out), box-shadow .3s var(--ease-out), border-color .2s ease;cursor:pointer;}
     .sample-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lift);border-color:var(--ink-300);}
+    .glyph-chip{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:10px;flex:0 0 auto;}
     /* Flow-Stepper-Streifen */
-    .flow-stepper{display:flex;align-items:center;gap:14px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:0.14em;color:var(--ink-500);}
+    .flow-stepper{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:0.14em;color:var(--ink-500);}
     .flow-stepper .step{display:inline-flex;align-items:center;gap:8px;}
     .flow-stepper .step.active{color:var(--ink-900);}
     .flow-stepper .num{display:inline-flex;width:22px;height:22px;align-items:center;justify-content:center;border-radius:99px;background:var(--cream-300);color:var(--ink-700);font-weight:600;}
     .flow-stepper .step.active .num{background:var(--ink-900);color:var(--cream-50);}
-    .flow-stepper .sep{flex:0 0 24px;height:1px;background:var(--cream-300);}
+    .flow-stepper .sep{flex:0 0 16px;height:1px;background:var(--cream-300);}
+    @media (min-width:640px){ .flow-stepper{gap:14px;} .flow-stepper .sep{flex-basis:24px;} }
     /* sichtbarer Tastatur-Fokus (nur bei Tastaturnavigation) */
     a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible{
       outline:2px solid var(--cobalt); outline-offset:2px; border-radius:6px;}

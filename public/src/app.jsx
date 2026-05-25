@@ -150,10 +150,34 @@ function NomosBadge() {
     <span className="brand-mono text-ink-900" style={{ fontSize:11, letterSpacing:'0.14em' }}>NOMOS · INSIDE</span></span>;
 }
 
+// Branchen-Glyphs für Beispielkarten — minimal, eigenständig, on-brand.
+const SunGlyph = ({ size=18, color='currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="4" fill="none" stroke={color} strokeWidth="1.6" />
+    {[0,45,90,135,180,225,270,315].map((a)=>{
+      const r=a*Math.PI/180; const x1=12+Math.cos(r)*7, y1=12+Math.sin(r)*7, x2=12+Math.cos(r)*9.5, y2=12+Math.sin(r)*9.5;
+      return <line key={a} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="1.6" strokeLinecap="round" />;
+    })}
+  </svg>
+);
+const PulseGlyph = ({ size=18, color='currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M3 12h4l2 -5 3 10 2 -5 3 3 4 0" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const BoltGlyph = ({ size=18, color='currentColor' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M13 2 4 14h6l-1 8 9 -12h-6l1 -8z" fill="none" stroke={color} strokeWidth="1.6" strokeLinejoin="round" />
+  </svg>
+);
+
 const SAMPLES = [
-  { proj:'Helios', text:'Wir bauen eine Plug-&-Play-Battery, die jeder Hausbesitzer an seine bestehende Solaranlage hängen kann. Massiv günstiger als alles am Markt — und in 20 Minuten installiert. Sitz in Bayern, noch vor der Gründung, kommen aus der TU München.' },
-  { proj:'MediFlow', text:'Unsere App nutzt KI, um Patientendaten in Kliniken automatisch zu strukturieren. Spart Pflegekräften krass viel Zeit und reduziert Doku-Fehler. Wir sind ein Seed-Startup aus Berlin, suchen FuE-Förderung.' },
-  { proj:'GridSense', text:'Wir entwickeln ein KI-Tool zur Vorhersage von Lastspitzen im Stromnetz. Netzbetreiber verteilen Energie effizienter und vermeiden teure Engpässe. Forschungsbasierte Ausgründung, NRW.' },
+  { proj:'Helios', glyph:SunGlyph, accent:'honey',
+    text:'Wir bauen eine Plug-&-Play-Battery, die jeder Hausbesitzer an seine bestehende Solaranlage hängen kann. Massiv günstiger als alles am Markt — und in 20 Minuten installiert. Sitz in Bayern, noch vor der Gründung, kommen aus der TU München.' },
+  { proj:'MediFlow', glyph:PulseGlyph, accent:'cobalt',
+    text:'Unsere App nutzt KI, um Patientendaten in Kliniken automatisch zu strukturieren. Spart Pflegekräften krass viel Zeit und reduziert Doku-Fehler. Wir sind ein Seed-Startup aus Berlin, suchen FuE-Förderung.' },
+  { proj:'GridSense', glyph:BoltGlyph, accent:'terracotta',
+    text:'Wir entwickeln ein KI-Tool zur Vorhersage von Lastspitzen im Stromnetz. Netzbetreiber verteilen Energie effizienter und vermeiden teure Engpässe. Forschungsbasierte Ausgründung, NRW.' },
 ];
 
 /* ── Marketing pages ─────────────────────────────────────────────────────── */
@@ -537,7 +561,7 @@ function Modal({ onClose, children, className='max-w-xl', label='Dialog' }) {
   return (
     <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4" onClick={onClose}>
       <div ref={ref} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}
-        className={"anim-pop max-h-[88vh] w-full overflow-auto rounded-3xl border border-cream-300 bg-cream-50 p-7 shadow-card outline-none "+className}
+        className={"anim-pop max-h-[88vh] w-full overflow-auto rounded-3xl border border-cream-300 bg-cream-50 p-5 sm:p-7 shadow-card outline-none "+className}
         onClick={(e)=>e.stopPropagation()}>
         {children}
       </div>
@@ -1225,14 +1249,14 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
           </p>
           <section aria-label="Vorhaben eingeben" className="shadow-card anim-pop mt-9 rounded-3xl border border-cream-300 bg-cream-50/85 p-5 md:p-6">
             <header className="flex flex-wrap items-center justify-between gap-3">
-              <div role="tablist" aria-label="Eingabemodus" className="seg-bar">
+              <div role="tablist" aria-label="Eingabemodus" className="seg-bar order-1">
                 {[['text','Text'],['datei','Datei'],['sprache','Sprache']].map(([k,l])=>(
                   <button key={k} role="tab" aria-selected={mode===k} onClick={()=>setMode(k)} className="seg-pill">{l}</button>
                 ))}
               </div>
               <input value={proj} onChange={e=>setProj(e.target.value)}
                 placeholder="Titel des Vorhabens (optional)" aria-label="Titel des Vorhabens (optional)"
-                className="w-full max-w-[260px] rounded-full border border-cream-300 bg-transparent px-4 py-1.5 text-xs text-ink-900 outline-none placeholder:text-ink-300 focus:border-ink-900" />
+                className="order-3 w-full sm:order-2 sm:w-auto sm:max-w-[260px] rounded-full border border-cream-300 bg-transparent px-4 py-1.5 text-xs text-ink-900 outline-none placeholder:text-ink-300 focus:border-ink-900" />
             </header>
 
             <div className="mt-4 anim-fadein" key={mode}>
@@ -1296,15 +1320,23 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
 
             {/* Premium-Beispielkarten */}
             <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
-              {SAMPLES.map((s, i) => (
-                <button key={s.proj} onClick={()=>chooseSample(s)} className="sample-card">
-                  <div className="flex items-center justify-between">
-                    <span className="font-sans text-[15px] font-medium text-ink-900">{s.proj}</span>
-                    <span className="brand-mono text-ink-500" style={{ fontSize:9, letterSpacing:'0.12em' }}>BEISPIEL {String(i+1).padStart(2,'0')}</span>
-                  </div>
-                  <p className="text-xs leading-snug text-ink-700">{s.text.length > 130 ? s.text.slice(0, 130) + '…' : s.text}</p>
-                </button>
-              ))}
+              {SAMPLES.map((s, i) => {
+                const G = s.glyph; const accent = `var(--${s.accent})`;
+                return (
+                  <button key={s.proj} onClick={()=>chooseSample(s)} className="sample-card">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="glyph-chip" style={{ background: accent + '1f', color: accent }} aria-hidden="true">
+                          <G size={16} color={accent} />
+                        </span>
+                        <span className="font-sans text-[15px] font-medium text-ink-900 truncate">{s.proj}</span>
+                      </div>
+                      <span className="brand-mono shrink-0 text-ink-500" style={{ fontSize:9, letterSpacing:'0.12em' }}>{String(i+1).padStart(2,'0')}</span>
+                    </div>
+                    <p className="text-xs leading-snug text-ink-700">{s.text.length > 130 ? s.text.slice(0, 130) + '…' : s.text}</p>
+                  </button>
+                );
+              })}
             </div>
 
             {error && <div className="mt-4 rounded-xl border border-terracotta/40 bg-terracotta/10 px-4 py-3 text-sm text-ink-900">{error}</div>}
