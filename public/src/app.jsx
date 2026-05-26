@@ -186,6 +186,28 @@ function ThemeToggle({ theme, onToggle }) {
     </button>
   );
 }
+// KineticPhrase: rotierendes Wort im Hero. Reserviert Breite via Ghost (längstes Wort),
+// stackt die Wörter absolut, fadet + verschiebt vertikal. respektiert prefers-reduced-motion.
+function KineticPhrase({ words, interval = 2200, color = 'var(--accent)' }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (!words || !words.length) return;
+    const id = setInterval(() => setI(v => (v + 1) % words.length), interval);
+    return () => clearInterval(id);
+  }, [words, interval]);
+  const ghost = useMemo(() => (words || []).reduce((a, b) => a.length >= b.length ? a : b, ''), [words]);
+  return (
+    <span className="kp-host" style={{ color }}>
+      <span aria-hidden="true" className="kp-ghost">{ghost}</span>
+      {(words || []).map((w, idx) => (
+        <span key={idx + w} className="kp-word" style={{
+          opacity: idx === i ? 1 : 0,
+          transform: idx === i ? 'translateY(0)' : (idx < i ? 'translateY(-0.45em)' : 'translateY(0.45em)'),
+        }}>{w}</span>
+      ))}
+    </span>
+  );
+}
 // BackdropArc: ambient gradient-Bogen, fixed im Viewport, driftet pro Stage. pointer-events:none.
 function BackdropArc({ stage='landing' }) {
   const cfg = {
@@ -384,11 +406,11 @@ function Marketing({ page, go, startPitch }) {
 // Produktfamilie von Telos — Nomos ist live, der Rest ist Roadmap.
 // Produktfamilie — verbindlich aus dem Sub-Brand-System. Reihenfolge = Gründungs-Reise.
 const PRODUCTS = [
-  { name: 'Nomos',    greek: 'νόμος · Gesetz',     funktion: 'Fördermittel-Copilot',          tagline: 'Vom Pitch zum Bescheid.',            benefit: 'Findet passende Förderungen und schreibt 80 % des Antrags — dein Start ins Unternehmertum.', color: '#26221C', Glyph: NomosMark,    status: 'live' },
-  { name: 'Metron',   greek: 'μέτρον · Maß',       funktion: 'Rating-Ready-Generator',        tagline: 'Was die Bank misst.',                benefit: 'Macht deinen Businessplan bank- & rating-fähig: Kapitaldienst, Branchenrisiko, Eigenmittelquote.', color: '#C26A4C', Glyph: MetronMark,   status: 'geplant' },
-  { name: 'Agora',    greek: 'ἀγορά · Marktplatz', funktion: 'Vergabe-Marktplatz',            tagline: 'Wo Anbieter sich finden.',           benefit: 'Scannt öffentliche Ausschreibungen (TED, eVergabe) und erstellt strukturierte Bietungsangebote.', color: '#D5A55B', Glyph: AgoraMark,    status: 'geplant' },
-  { name: 'Elenchos', greek: 'ἔλεγχος · Prüfung',  funktion: 'Verwendungsnachweis-Generator', tagline: 'Behauptung. Geprüft.',               benefit: 'Überführt nach der Förderzusage deine Belege in prüfsichere, formale Verwendungsnachweise.', color: '#4D6A8B', Glyph: ElenchosMark, status: 'geplant' },
-  { name: 'Hermes',   greek: 'Ἑρμῆς · Bote',       funktion: 'Vertrags-Übersetzer',           tagline: 'Juristisch lesen, menschlich verstehen.', benefit: 'Analysiert Verträge auf nachteilige Klauseln und übersetzt Juristendeutsch in Handlungsempfehlungen.', color: '#8A9A78', Glyph: HermesMark,   status: 'geplant' },
+  { id:'nomos',    name: 'Nomos',    greek: 'νόμος · Gesetz',     funktion: 'Fördermittel-Copilot',          tagline: 'Vom Pitch zum Bescheid.',            benefit: 'Findet passende Förderungen und schreibt 80 % des Antrags — dein Start ins Unternehmertum.', color: '#26221C', accent:'var(--honey)',      status: 'live' },
+  { id:'metron',   name: 'Metron',   greek: 'μέτρον · Maß',       funktion: 'Rating-Ready-Generator',        tagline: 'Was die Bank misst.',                benefit: 'Macht deinen Businessplan bank- & rating-fähig: Kapitaldienst, Branchenrisiko, Eigenmittelquote.', color: '#C26A4C', accent:'var(--terracotta)', status: 'geplant' },
+  { id:'agora',    name: 'Agora',    greek: 'ἀγορά · Marktplatz', funktion: 'Vergabe-Marktplatz',            tagline: 'Wo Anbieter sich finden.',           benefit: 'Scannt öffentliche Ausschreibungen (TED, eVergabe) und erstellt strukturierte Bietungsangebote.', color: '#D5A55B', accent:'var(--honey)',      status: 'geplant' },
+  { id:'elenchos', name: 'Elenchos', greek: 'ἔλεγχος · Prüfung',  funktion: 'Verwendungsnachweis-Generator', tagline: 'Behauptung. Geprüft.',               benefit: 'Überführt nach der Förderzusage deine Belege in prüfsichere, formale Verwendungsnachweise.', color: '#4D6A8B', accent:'var(--cobalt)',     status: 'geplant' },
+  { id:'hermes',   name: 'Hermes',   greek: 'Ἑρμῆς · Bote',       funktion: 'Vertrags-Übersetzer',           tagline: 'Juristisch lesen, menschlich verstehen.', benefit: 'Analysiert Verträge auf nachteilige Klauseln und übersetzt Juristendeutsch in Handlungsempfehlungen.', color: '#8A9A78', accent:'var(--sage)',       status: 'geplant' },
 ];
 const VISION_WORDS = ['entbürokratisiert', 'einfacher', 'schneller', 'planbar', 'finanzierbar', 'machbar'];
 
@@ -398,7 +420,7 @@ function ProductCard({ p, n, go }) {
     <div className="overflow-hidden rounded-3xl border border-cream-300 transition-all hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-20px_rgba(40,30,20,0.4)]" style={dark ? { background:'#26221C' } : { background:'var(--cream-50)' }}>
       <div className="flex items-center justify-between gap-3 p-5" style={dark ? {} : { background: p.color + '14' }}>
         <div className="flex items-center gap-3">
-          <p.Glyph size={34} color={dark ? '#F1ECDE' : p.color} />
+          <BrandGlyph name={p.id} size={34} color={dark ? 'var(--cream-100)' : p.accent} />
           <div>
             <div className="font-sans" style={{ fontSize:22, fontWeight:500, letterSpacing:'-0.045em', lineHeight:1, color: dark ? '#F7F2E7' : 'var(--ink-900)' }}>{p.name.toLowerCase()}</div>
             <div className="brand-mono mt-1" style={{ fontSize:9, letterSpacing:'0.12em', color: dark ? 'rgba(245,240,230,0.6)' : 'var(--ink-500)' }}>{p.greek}</div>
@@ -1439,17 +1461,37 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
             <NomosBadge />
             <button onClick={onVision} className="brand-mono text-ink-500 transition-colors hover:text-ink-900" style={{ fontSize:10, letterSpacing:'0.14em' }}>· DAS ERSTE PRODUKT VON TELOS → VISION</button>
           </div>
-          <h1 className="mt-6 font-sans" style={{ fontSize:'clamp(46px,7vw,82px)', fontWeight:400, letterSpacing:'-0.04em', lineHeight:0.94 }}>
-            Vom Pitch<br/>zum <em className="brand-serif grad-text italic" style={{ fontWeight:400 }}>Bescheid</em>.<br/>Reibungslos.
+          <h1 className="mt-6 font-sans" style={{ fontSize:'clamp(56px,9vw,140px)', fontWeight:600, letterSpacing:'-0.04em', lineHeight:0.95 }}>
+            <span style={{ display:'block' }}>Vom Pitch</span>
+            <span style={{ display:'block' }}>
+              zum <KineticPhrase words={['Bescheid.','Antrag.','Stipendium.','Zuschuss.','Förderbescheid.']} />
+            </span>
           </h1>
-          <p className="mt-5 font-sans text-ink-900" style={{ fontSize:'clamp(20px,2.6vw,28px)', fontWeight:400, letterSpacing:'-0.02em' }}>
+          <p className="mt-5 font-sans" style={{ fontSize:'clamp(18px,1.6vw,22px)', color:'var(--text-2)', maxWidth:560, lineHeight:1.5 }}>
+            Nomos findet öffentliche Fördermittel für dein Vorhaben und schreibt <span style={{ color:'var(--text-1)' }}>~80&nbsp;%</span> deines Antrags in formellem Behördendeutsch.
+          </p>
+          {/* CTA-Row im Bundle-Stil */}
+          <div className="anim-fadeup mt-7 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={()=>{ const el=document.getElementById('vorhaben'); if(el){ el.scrollIntoView({behavior:'smooth',block:'start'}); const ta=el.querySelector('textarea,input'); if(ta) setTimeout(()=>ta.focus(),350); } }} className="btn btn-accent btn-lg" aria-label="Pitch-Deck hochladen">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6M4 20h16" /></svg>
+              Pitch-Deck hochladen
+            </button>
+            <button type="button" onClick={onVision} className="btn btn-lg" aria-label="90 Sek Demo">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 4l14 8-14 8z" /></svg>
+              90&nbsp;Sek Demo
+            </button>
+          </div>
+          {/* Stats — Bundle-Layout (Stat-n + stat-l), ehrlich */}
+          <div className="anim-fadeup mt-8 flex flex-wrap gap-x-12 gap-y-4 border-t border-cream-300 pt-6">
+            <div><div className="stat-n">1 200+</div><div className="stat-l">Programme indexiert</div></div>
+            <div><div className="stat-n">~80 %</div><div className="stat-l">Antrag automatisch</div></div>
+            <div><div className="stat-n highlight">&lt; 60s</div><div className="stat-l">bis zum ersten Match</div></div>
+          </div>
+          {/* Sekundärer Rotating-Word-Text bleibt als brand-Voice unter den Stats */}
+          <p className="mt-6 font-sans text-ink-700" style={{ fontSize:'clamp(15px,1.3vw,17px)' }}>
             Telos macht Gründen <RotatingWord words={VISION_WORDS} />.
           </p>
-          <p className="mt-4 max-w-md text-lg leading-relaxed text-ink-700">
-            Lade deinen echten Businessplan hoch. Nomos analysiert ihn mit KI, findet passende
-            Förderlinien und schreibt 80&nbsp;% des Antrags in formellem Behördendeutsch.
-          </p>
-          <section aria-label="Vorhaben eingeben" className="shadow-card anim-pop mt-9 rounded-3xl border border-cream-300 bg-cream-50/85 p-5 md:p-6">
+          <section id="vorhaben" aria-label="Vorhaben eingeben" className="shadow-card anim-pop mt-9 rounded-3xl border border-cream-300 bg-cream-50/85 p-5 md:p-6">
             <header className="flex flex-wrap items-center justify-between gap-3">
               <div role="tablist" aria-label="Eingabemodus" className="seg-bar order-1">
                 {[['text','Text'],['datei','Datei'],['sprache','Sprache']].map(([k,l])=>(
@@ -1588,7 +1630,7 @@ function Landing({ proj, setProj, pitch, setPitch, file, setFile, error, onAnaly
           <div className="mt-4 flex items-center justify-between gap-1">
             {PRODUCTS.map((p)=>(
               <div key={p.name} className="flex flex-1 flex-col items-center gap-1.5 transition-transform group-hover:-translate-y-0.5">
-                <p.Glyph size={26} color={p.status==='live' ? 'var(--ink-900)' : p.color} />
+                <BrandGlyph name={p.id} size={26} color={p.status==='live' ? 'var(--ink-900)' : p.accent} />
                 <span className="font-sans" style={{ fontSize:11, fontWeight:500, letterSpacing:'-0.03em', color: p.status==='live' ? 'var(--ink-900)' : 'var(--ink-500)' }}>{p.name.toLowerCase()}</span>
                 <span className="brand-mono rounded-full px-1.5 py-px" style={{ fontSize:7, letterSpacing:'0.08em', background: p.status==='live' ? 'var(--ink-900)' : p.color+'22', color: p.status==='live' ? '#F7F2E7' : p.color }}>{p.status==='live' ? 'LIVE' : 'BALD'}</span>
               </div>))}
